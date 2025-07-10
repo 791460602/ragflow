@@ -1,0 +1,92 @@
+{
+  "scheduler_config": {
+    "enabled": true,
+    "timezone": "Asia/Shanghai",
+    "max_concurrent_jobs": 5,
+    "job_timeout": 3600
+  },
+  "news_sources": [
+    {
+      "name": "新浪新闻",
+      "url": "https://news.sina.com.cn/",
+      "type": "rss",
+      "rss_url": "https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid=2509&k=&num=50&page=1&r=",
+      "keywords": ["科技", "AI", "人工智能", "数字化转型"],
+      "exclude_keywords": ["广告", "推广"],
+      "max_news_count": 20,
+      "enabled": true
+    },
+    {
+      "name": "腾讯新闻",
+      "url": "https://news.qq.com/",
+      "type": "rss", 
+      "rss_url": "https://rsshub.app/tencent/news/tech",
+      "keywords": ["科技", "互联网", "创新"],
+      "exclude_keywords": ["娱乐", "体育"],
+      "max_news_count": 15,
+      "enabled": true
+    },
+    {
+      "name": "36氪",
+      "url": "https://36kr.com/",
+      "type": "rss",
+      "rss_url": "https://rsshub.app/36kr/newsflashes",
+      "keywords": ["创业", "投资", "科技"],
+      "exclude_keywords": [],
+      "max_news_count": 10,
+      "enabled": true
+    }
+  ],
+  "news_processor": {
+    "kb_id": "your_knowledge_base_id",
+    "process_content": true,
+    "max_content_length": 5000,
+    "save_to_kb": true,
+    "format_output": "markdown",
+    "download_attachments": true,
+    "attachment_types": ["pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx"],
+    "max_attachment_size": 52428800,
+    "attachment_timeout": 60
+  },
+  "report_generator": {
+    "template": "daily_brief",
+    "language": "zh-CN",
+    "include_attachments": true,
+    "attachment_summary": true,
+    "max_attachment_summary_length": 500,
+    "output_format": "markdown",
+    "sections": [
+      "summary",
+      "key_events", 
+      "industry_trends",
+      "attachments"
+    ]
+  },
+  "schedule": {
+    "crawl_schedule": "0 8,12,18 * * *",
+    "report_schedule": "0 9 * * *",
+    "cleanup_schedule": "0 2 * * 0"
+  },
+  "storage": {
+    "max_storage_size": "10GB",
+    "retention_days": 30,
+    "backup_enabled": true
+  },
+  "notifications": {
+    "email": {
+      "enabled": false,
+      "smtp_server": "smtp.example.com",
+      "smtp_port": 587,
+      "username": "your_email@example.com",
+      "password": "your_password",
+      "recipients": ["recipient@example.com"]
+    },
+    "webhook": {
+      "enabled": false,
+      "url": "https://your-webhook-url.com/notify",
+      "headers": {
+        "Authorization": "Bearer your-token"
+      }
+    }
+  }
+} 

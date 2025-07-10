@@ -51,6 +51,13 @@ from .email import Email, EmailParam
 from .iteration import Iteration, IterationParam
 from .iterationitem import IterationItem, IterationItemParam
 from .code import Code, CodeParam
+from .news_crawler_impl import NewsCrawler, NewsCrawlerParam
+from .news_processor_impl import NewsProcessor, NewsProcessorParam
+from .daily_report_generator_impl import DailyReportGenerator, DailyReportGeneratorParam
+from .news_crawler_node import NewsCrawlerNode, NewsCrawlerNodeParam
+from .news_processor_node import NewsProcessorNode, NewsProcessorNodeParam
+from .daily_report_generator_node import DailyReportGeneratorNode, DailyReportGeneratorNodeParam
+from .news_scheduler_node import NewsSchedulerNode, NewsSchedulerNodeParam
 
 
 def component_class(class_name):
@@ -133,4 +140,16 @@ __all__ = [
     "Code",
     "CodeParam",
     "component_class"
+]
+
+__all__ += [
+    # 原有功能类
+    "NewsCrawler", "NewsCrawlerParam",
+    "NewsProcessor", "NewsProcessorParam", 
+    "DailyReportGenerator", "DailyReportGeneratorParam",
+    # 新增可视化节点类
+    "NewsCrawlerNode", "NewsCrawlerNodeParam",
+    "NewsProcessorNode", "NewsProcessorNodeParam",
+    "DailyReportGeneratorNode", "DailyReportGeneratorNodeParam",
+    "NewsSchedulerNode", "NewsSchedulerNodeParam"
 ]

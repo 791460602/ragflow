@@ -90,6 +90,10 @@ export enum Operator {
   TavilySearch = 'TavilySearch',
   UserFillUp = 'UserFillUp',
   StringTransform = 'StringTransform',
+  NewsCrawler = 'NewsCrawler',
+  NewsProcessor = 'NewsProcessor',
+  DailyReportGenerator = 'DailyReportGenerator',
+  NewsScheduler = 'NewsScheduler',
 }
 
 export const SwitchLogicOperatorOptions = ['and', 'or'];
@@ -255,6 +259,10 @@ export const operatorMap: Record<
   [Operator.WaitingDialogue]: { backgroundColor: '#a5d65c' },
   [Operator.Agent]: { backgroundColor: '#a5d65c' },
   [Operator.TavilySearch]: { backgroundColor: '#a5d65c' },
+  [Operator.NewsCrawler]: { backgroundColor: '#e0f7fa', color: '#00796b' },
+  [Operator.NewsProcessor]: { backgroundColor: '#fff3e0', color: '#e65100' },
+  [Operator.DailyReportGenerator]: { backgroundColor: '#f3e5f5', color: '#6a1b9a' },
+  [Operator.NewsScheduler]: { backgroundColor: '#e8f5e9', color: '#2e7d32' },
 };
 
 export const componentMenuList = [
@@ -367,6 +375,10 @@ export const componentMenuList = [
   {
     name: Operator.Email,
   },
+  { name: Operator.NewsCrawler, },
+  { name: Operator.NewsProcessor, },
+  { name: Operator.DailyReportGenerator, },
+  { name: Operator.NewsScheduler, },
 ];
 
 export const SwitchOperatorOptions = [
