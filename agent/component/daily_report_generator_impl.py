@@ -23,7 +23,7 @@ import pandas as pd
 from agent.component.base import ComponentBase, ComponentParamBase
 from api.db.services.knowledgebase_service import KnowledgebaseService
 from api.db.services.document_service import DocumentService
-from api.db.services.chat_service import ChatService
+from api.db.services.dialog_service import DialogService
 from api.db import StatusEnum
 
 
@@ -103,7 +103,7 @@ class DailyReportGenerator(ComponentBase, ABC):
                     continue
                 
                 # 获取文档列表
-                docs = DocumentService.get_docs_by_kb_id(kb_id)
+                docs, _ = DocumentService.get_by_kb_id(kb_id, 1, 1000, "created_time", True)
                 
                 # 过滤新闻文档
                 news_docs = []
