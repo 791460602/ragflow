@@ -14,9 +14,87 @@
 #  limitations under the License.
 #
 import logging
+import json
+import os
+from datetime import datetime
 from flask import request
 from flask_login import login_required, current_user
 from api.utils.api_utils import server_error_response, get_json_result, validate_request
+
+
+class NewsScheduler:
+    """新闻调度服务类"""
+    
+    def __init__(self):
+        self.config_file = "news_scheduler_config.json"
+        self.configs = {}
+        self.jobs = {}
+        self.load_configs()
+    
+    def load_configs(self):
+        """加载配置文件"""
+        try:
+            if os.path.exists(self.config_file):
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    self.configs = json.load(f)
+        except Exception as e:
+            logging.error(f"加载配置文件失败: {str(e)}")
+            self.configs = {}
+    
+    def save_configs(self):
+        """保存配置文件"""
+        try:
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(self.configs, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logging.error(f"保存配置文件失败: {str(e)}")
+    
+    def add_tenant_config(self, tenant_id, config):
+        """添加租户配置"""
+        self.configs[str(tenant_id)] = {
+            "config": config,
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat()
+        }
+        self.save_configs()
+    
+    def remove_tenant_config(self, tenant_id):
+        """移除租户配置"""
+        tenant_id_str = str(tenant_id)
+        if tenant_id_str in self.configs:
+            del self.configs[tenant_id_str]
+            self.save_configs()
+    
+    def get_job_status(self, tenant_id):
+        """获取任务状态"""
+        tenant_id_str = str(tenant_id)
+        if tenant_id_str in self.configs:
+            return {
+                "tenant_id": tenant_id,
+                "config": self.configs[tenant_id_str]["config"],
+                "status": "active" if tenant_id_str in self.jobs else "inactive",
+                "last_run": self.jobs.get(tenant_id_str, {}).get("last_run"),
+                "next_run": self.jobs.get(tenant_id_str, {}).get("next_run")
+            }
+        return None
+    
+    def get_all_job_status(self):
+        """获取所有任务状态"""
+        return [self.get_job_status(tenant_id) for tenant_id in self.configs.keys()]
+    
+    def start(self):
+        """启动调度服务"""
+        logging.info("新闻调度服务已启动")
+        # 这里可以添加实际的调度逻辑，比如使用APScheduler等
+    
+    def stop(self):
+        """停止调度服务"""
+        logging.info("新闻调度服务已停止")
+        # 这里可以添加停止调度的逻辑
+
+
+# 创建全局实例
+news_scheduler = NewsScheduler()
 
 
 @manager.route('/news_scheduler/config', methods=['POST'])  # noqa: F821
@@ -37,8 +115,8 @@ def set_news_scheduler_config():
         news_scheduler.add_tenant_config(tenant_id, config)
         
         return get_json_result(data=True, message="配置设置成功")
-            
-        except Exception as e:
+        
+    except Exception as e:
         logging.error(f"设置新闻调度配置失败: {str(e)}")
         return server_error_response(e)
 
@@ -52,8 +130,8 @@ def get_news_scheduler_config():
         status = news_scheduler.get_job_status(tenant_id)
         
         return get_json_result(data=status)
-            
-        except Exception as e:
+        
+    except Exception as e:
         logging.error(f"获取新闻调度配置失败: {str(e)}")
         return server_error_response(e)
 
@@ -67,8 +145,8 @@ def remove_news_scheduler_config():
         news_scheduler.remove_tenant_config(tenant_id)
         
         return get_json_result(data=True, message="配置移除成功")
-            
-        except Exception as e:
+        
+    except Exception as e:
         logging.error(f"移除新闻调度配置失败: {str(e)}")
         return server_error_response(e)
 
@@ -96,8 +174,8 @@ def start_news_scheduler():
         news_scheduler.start()
         
         return get_json_result(data=True, message="新闻调度服务已启动")
-            
-        except Exception as e:
+        
+    except Exception as e:
         logging.error(f"启动新闻调度服务失败: {str(e)}")
         return server_error_response(e)
 
@@ -110,8 +188,8 @@ def stop_news_scheduler():
         news_scheduler.stop()
         
         return get_json_result(data=True, message="新闻调度服务已停止")
-            
-        except Exception as e:
+        
+    except Exception as e:
         logging.error(f"停止新闻调度服务失败: {str(e)}")
         return server_error_response(e)
 
@@ -138,26 +216,24 @@ def test_news_crawl():
         }
         
         # 执行测试抓取
-        import asyncio
-        from agent.component.news_crawler import NewsCrawler, NewsCrawlerParam
+        import pandas as pd
+        from agent.component.news_crawler_impl import NewsCrawlerImpl
         
-            crawler = NewsCrawler()
-            crawler._param = NewsCrawlerParam()
-        crawler._param.news_sources = test_config["news_sources"]
-        crawler._param.max_news_per_source = test_config["max_news_per_source"]
-        crawler._param.date_filter = test_config["date_filter"]
-        crawler._param.keywords = test_config["keywords"]
-        crawler._param.timeout = test_config["timeout"]
+        crawler = NewsCrawlerImpl()
+        crawler.news_sources = test_config["news_sources"]
+        crawler.max_news_per_source = test_config["max_news_per_source"]
+        crawler.date_filter = test_config["date_filter"]
+        crawler.keywords = test_config["keywords"]
+        crawler.timeout = test_config["timeout"]
         
-        crawler._input = {"content": news_sources}
-            result = crawler._run([])
-            
-            if isinstance(result, pd.DataFrame) and not result.empty:
+        result = crawler.crawl_news()
+        
+        if isinstance(result, pd.DataFrame) and not result.empty:
             return get_json_result(data=result.to_dict('records'), message="测试抓取成功")
-            else:
+        else:
             return get_json_result(data=False, message="测试抓取失败，未获取到新闻")
-            
-        except Exception as e:
+        
+    except Exception as e:
         logging.error(f"测试新闻抓取失败: {str(e)}")
         return server_error_response(e)
 
@@ -185,27 +261,24 @@ def test_report_generation():
         }
         
         # 执行测试生成
-        from agent.component.daily_report_generator import DailyReportGenerator, DailyReportGeneratorParam
+        from agent.component.daily_report_generator_impl import DailyReportGeneratorImpl
         
-            generator = DailyReportGenerator()
-            generator._param = DailyReportGeneratorParam()
-        generator._param.kb_ids = test_config["kb_ids"]
-        generator._param.report_title = test_config["report_title"]
-        generator._param.report_template = test_config["report_template"]
-        generator._param.max_news_count = test_config["max_news_count"]
-        generator._param.categorize_news = test_config["categorize_news"]
-        generator._param.language = test_config["language"]
+        generator = DailyReportGeneratorImpl()
+        generator.kb_ids = test_config["kb_ids"]
+        generator.report_title = test_config["report_title"]
+        generator.report_template = test_config["report_template"]
+        generator.max_news_count = test_config["max_news_count"]
+        generator.categorize_news = test_config["categorize_news"]
+        generator.language = test_config["language"]
         
-        generator._input = {"content": kb_ids}
-            result = generator._run([])
-            
-            if isinstance(result, pd.DataFrame) and not result.empty:
-                report_content = result.iloc[0]["content"]
-            return get_json_result(data={"report": report_content}, message="测试简报生成成功")
-            else:
+        result = generator.generate_report()
+        
+        if result and isinstance(result, str):
+            return get_json_result(data={"report": result}, message="测试简报生成成功")
+        else:
             return get_json_result(data=False, message="测试简报生成失败")
-            
-        except Exception as e:
+        
+    except Exception as e:
         logging.error(f"测试简报生成失败: {str(e)}")
         return server_error_response(e)
 
