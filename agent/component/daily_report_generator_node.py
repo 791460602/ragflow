@@ -1,5 +1,5 @@
 from agent.component.base import ComponentBase, ComponentParamBase
-from agent.component.daily_report_generator import DailyReportGenerator, DailyReportGeneratorParam
+from agent.component.daily_report_generator_impl import DailyReportGenerator, DailyReportGeneratorParam
 from typing import List, Dict, Any
 
 class DailyReportGeneratorNodeParam(DailyReportGeneratorParam):
@@ -29,8 +29,6 @@ class DailyReportGeneratorNode(ComponentBase):
         param = DailyReportGeneratorNodeParam()
         param.update(self._param.as_dict())
         param.check()
-        generator = DailyReportGenerator()
-        generator._param = param
-        generator._input = {"content": processed_news} if processed_news is not None else self._input
+        generator = DailyReportGenerator(self._canvas, self._id, param)
         result = generator._run(history, **kwargs)
         return {"report": result} 

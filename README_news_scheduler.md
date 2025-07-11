@@ -286,7 +286,7 @@ result = processor._run([], content=news_data)
 ### 生成包含附件的简报
 
 ```python
-from agent.component.daily_report_generator import DailyReportGenerator
+from agent.component.daily_report_generator_impl import DailyReportGenerator
 
 # 配置简报生成
 generator = DailyReportGenerator()
