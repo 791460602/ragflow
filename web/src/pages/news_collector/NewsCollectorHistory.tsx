@@ -1,4 +1,5 @@
 import React from 'react';
+import { Table, Tag } from 'antd';
 
 interface NewsHistoryItem {
   id: number;
@@ -13,30 +14,29 @@ interface NewsCollectorHistoryProps {
 }
 
 const NewsCollectorHistory: React.FC<NewsCollectorHistoryProps> = ({ history }) => {
+  const columns = [
+    { title: '来源', dataIndex: 'sourceName', key: 'sourceName' },
+    { title: '标题', dataIndex: 'title', key: 'title' },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      key: 'status',
+      render: (text: string) => (
+        <Tag color={text === '成功' ? 'green' : 'red'}>{text}</Tag>
+      ),
+    },
+    { title: '时间', dataIndex: 'createdAt', key: 'createdAt' },
+  ];
+
   return (
-    <div style={{ marginTop: 32 }}>
-      <h2>抓取历史</h2>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr>
-            <th>来源</th>
-            <th>标题</th>
-            <th>状态</th>
-            <th>时间</th>
-          </tr>
-        </thead>
-        <tbody>
-          {history.map(item => (
-            <tr key={item.id}>
-              <td>{item.sourceName}</td>
-              <td>{item.title}</td>
-              <td>{item.status}</td>
-              <td>{item.createdAt}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <Table
+      columns={columns}
+      dataSource={history}
+      rowKey="id"
+      pagination={false}
+      size="middle"
+      style={{ marginTop: 8 }}
+    />
   );
 };
 

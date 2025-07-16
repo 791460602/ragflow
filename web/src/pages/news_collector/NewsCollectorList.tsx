@@ -1,4 +1,5 @@
 import React from 'react';
+import { Table, Button } from 'antd';
 
 interface NewsSource {
   id: number;
@@ -13,29 +14,28 @@ interface NewsCollectorListProps {
 }
 
 const NewsCollectorList: React.FC<NewsCollectorListProps> = ({ sources, onDelete }) => {
+  const columns = [
+    { title: '名称', dataIndex: 'name', key: 'name' },
+    { title: 'URL', dataIndex: 'url', key: 'url', render: (text: string) => <a href={text} target="_blank" rel="noopener noreferrer">{text}</a> },
+    { title: '备注', dataIndex: 'remark', key: 'remark' },
+    {
+      title: '操作',
+      key: 'action',
+      render: (_: any, record: NewsSource) => (
+        <Button danger size="small" onClick={() => onDelete(record.id)}>删除</Button>
+      ),
+    },
+  ];
+
   return (
-    <table style={{ width: '100%', marginTop: 16, borderCollapse: 'collapse' }}>
-      <thead>
-        <tr>
-          <th>名称</th>
-          <th>URL</th>
-          <th>备注</th>
-          <th>操作</th>
-        </tr>
-      </thead>
-      <tbody>
-        {sources.map(source => (
-          <tr key={source.id}>
-            <td>{source.name}</td>
-            <td>{source.url}</td>
-            <td>{source.remark}</td>
-            <td>
-              <button onClick={() => onDelete(source.id)}>删除</button>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <Table
+      columns={columns}
+      dataSource={sources}
+      rowKey="id"
+      pagination={false}
+      size="middle"
+      style={{ marginTop: 8 }}
+    />
   );
 };
 

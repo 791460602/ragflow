@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { Flex, Card, Button, Input, Space, Spin, Empty, message } from 'antd';
+import { PlusOutlined, SyncOutlined } from '@ant-design/icons';
 import NewsCollectorForm from './NewsCollectorForm';
 import NewsCollectorList from './NewsCollectorList';
 import NewsCollectorHistory from './NewsCollectorHistory';
 import { getDatasets, fetchNews } from './NewsCollectorService';
+import styles from './index.less';
 
-// mock数据结构
 const initialSources = [
   { id: 1, name: '新浪新闻', url: 'https://news.sina.com.cn', remark: '默认示例' },
   { id: 2, name: '网易新闻', url: 'https://news.163.com', remark: '' },
@@ -14,7 +16,6 @@ const initialHistory = [
   { id: 2, sourceName: '网易新闻', title: '示例新闻2', status: '失败', createdAt: '2024-05-01 11:00' },
 ];
 
-// 假设API Key自动获取（如从localStorage、全局状态等）
 const getApiKey = () => localStorage.getItem('apiKey') || '';
 
 const NewsCollector: React.FC = () => {
@@ -22,6 +23,7 @@ const NewsCollector: React.FC = () => {
   const [history, setHistory] = useState(initialHistory);
   const [datasets, setDatasets] = useState<{ id: string; name: string }[]>([]);
   const [selectedDataset, setSelectedDataset] = useState('');
+  const [loading, setLoading] = useState(false);
   const apiKey = getApiKey();
 
   useEffect(() => {
@@ -32,7 +34,6 @@ const NewsCollector: React.FC = () => {
     }
   }, [apiKey]);
 
-  // 添加新闻源
   const handleAddSource = (data: { name: string; url: string; remark?: string }) => {
     setSources(prev => [
       ...prev,
@@ -40,17 +41,16 @@ const NewsCollector: React.FC = () => {
     ]);
   };
 
-  // 删除新闻源
   const handleDeleteSource = (id: number) => {
     setSources(prev => prev.filter(s => s.id !== id));
   };
 
-  // 抓取新闻
   const handleFetchNews = async () => {
     if (!selectedDataset) {
-      alert('请选择知识库');
+      message.warning('请选择知识库');
       return;
     }
+    setLoading(true);
     try {
       await fetchNews({ kb_id: selectedDataset, source_ids: sources.map(s => s.id) }, apiKey);
       setHistory(prev => [
@@ -63,25 +63,46 @@ const NewsCollector: React.FC = () => {
           createdAt: new Date().toLocaleString(),
         },
       ]);
-      alert('已抓取新闻并上传到知识库');
+      message.success('已抓取新闻并上传到知识库');
     } catch (e) {
-      alert('抓取或上传失败，请检查API Key和网络');
+      message.error('抓取或上传失败，请检查API Key和网络');
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div style={{ padding: 32 }}>
-      <h1>新闻收集</h1>
-      <NewsCollectorForm
-        onSubmit={handleAddSource}
-        datasets={datasets}
-        selectedDataset={selectedDataset}
-        onDatasetChange={setSelectedDataset}
-      />
-      <NewsCollectorList sources={sources} onDelete={handleDeleteSource} />
-      <button style={{ marginTop: 24 }} onClick={handleFetchNews}>立即抓取新闻</button>
-      <NewsCollectorHistory history={history} />
-    </div>
+    <Flex className={styles.newsCollector} vertical flex={1}>
+      <div className={styles.topWrapper}>
+        <div>
+          <span className={styles.title}>新闻收集</span>
+          <p className={styles.description}>配置新闻源，抓取并自动入库，便于检索和问答。</p>
+        </div>
+        <Space size="large">
+          {/* 这里可加搜索框等 */}
+          <Button type="primary" icon={<SyncOutlined />} onClick={handleFetchNews} loading={loading}>
+            立即抓取新闻
+          </Button>
+        </Space>
+      </div>
+      <Card className={styles.card} style={{ marginTop: 16 }}>
+        <NewsCollectorForm
+          onSubmit={handleAddSource}
+          datasets={datasets}
+          selectedDataset={selectedDataset}
+          onDatasetChange={setSelectedDataset}
+        />
+      </Card>
+      <Card className={styles.card} style={{ marginTop: 16 }} title="新闻源管理">
+        <NewsCollectorList sources={sources} onDelete={handleDeleteSource} />
+        {sources.length === 0 && <Empty description="暂无新闻源" />}
+      </Card>
+      <Card className={styles.card} style={{ marginTop: 16 }} title="抓取历史">
+        <NewsCollectorHistory history={history} />
+        {history.length === 0 && <Empty description="暂无抓取历史" />}
+      </Card>
+      <Spin spinning={loading} />
+    </Flex>
   );
 };
 
