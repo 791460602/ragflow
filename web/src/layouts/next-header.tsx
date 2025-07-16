@@ -82,6 +82,8 @@ export function Header() {
       { path: Routes.Searches, name: t('header.search'), icon: Search },
       { path: Routes.Agents, name: t('header.flow'), icon: Cpu },
       { path: Routes.Files, name: t('header.fileManager'), icon: File },
+      // 新增新闻收集入口
+      { path: Routes.NewsCollector, name: '新闻收集', icon: File },
     ],
     [t],
   );

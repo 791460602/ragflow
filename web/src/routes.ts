@@ -34,6 +34,7 @@ export enum Routes {
   ParsedResult = `${Chunk}${Parsed}`,
   Result = '/result',
   ResultView = `${Chunk}${Result}`,
+  NewsCollector = '/news_collector',
 }
 
 const routes = [
@@ -341,6 +342,17 @@ const routes = [
       {
         path: Routes.ProfileMcp,
         component: `@/pages${Routes.ProfileMcp}`,
+      },
+    ],
+  },
+  {
+    path: Routes.NewsCollector,
+    layout: false,
+    component: '@/layouts/next',
+    routes: [
+      {
+        path: Routes.NewsCollector,
+        component: '@/pages/news_collector',
       },
     ],
   },
