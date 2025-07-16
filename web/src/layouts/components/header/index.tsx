@@ -1,6 +1,7 @@
 import { ReactComponent as FileIcon } from '@/assets/svg/file-management.svg';
 import { ReactComponent as GraphIcon } from '@/assets/svg/graph.svg';
 import { ReactComponent as KnowledgeBaseIcon } from '@/assets/svg/knowledge-base.svg';
+import { ReactComponent as NewspaperIcon } from '@/assets/svg/newspaper.svg';
 import { useTranslate } from '@/hooks/common-hooks';
 import { useFetchAppConf } from '@/hooks/logic-hooks';
 import { useNavigateWithFromState } from '@/hooks/route-hook';
@@ -31,7 +32,7 @@ const RagHeader = () => {
       { path: '/search', name: t('search'), icon: SearchOutlined },
       { path: '/flow', name: t('flow'), icon: GraphIcon },
       { path: '/news_collector', name: t('newsCollector'), icon: FileIcon }, // 新增
-      { path: '/file', name: t('fileManager'), icon: FileIcon },
+      { path: '/file', name: t('fileManager'), icon: NewspaperIcon },
     ],
     [t],
   );
