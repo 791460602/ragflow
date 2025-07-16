@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Form, Input, Select, Button, Space } from 'antd';
 
 interface NewsSourceFormProps {
   onSubmit: (data: { name: string; url: string; remark?: string }) => void;
@@ -9,49 +10,49 @@ interface NewsSourceFormProps {
 }
 
 const NewsCollectorForm: React.FC<NewsSourceFormProps> = ({ onSubmit, initialData, datasets, selectedDataset, onDatasetChange }) => {
-  const [name, setName] = useState(initialData?.name || '');
-  const [url, setUrl] = useState(initialData?.url || '');
-  const [remark, setRemark] = useState(initialData?.remark || '');
+  const [form] = Form.useForm();
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name || !url) return;
-    onSubmit({ name, url, remark });
-    setName('');
-    setUrl('');
-    setRemark('');
+  const handleFinish = (values: { name: string; url: string; remark?: string }) => {
+    onSubmit(values);
+    form.resetFields();
   };
 
   return (
-    <form onSubmit={handleSubmit} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-      <select value={selectedDataset} onChange={e => onDatasetChange(e.target.value)} required style={{ minWidth: 120 }}>
-        <option value="">选择知识库</option>
-        {datasets.map(ds => (
-          <option key={ds.id} value={ds.id}>{ds.name}</option>
-        ))}
-      </select>
-      <input
-        type="text"
-        placeholder="网站名称"
-        value={name}
-        onChange={e => setName(e.target.value)}
-        required
-      />
-      <input
-        type="url"
-        placeholder="新闻源URL"
-        value={url}
-        onChange={e => setUrl(e.target.value)}
-        required
-      />
-      <input
-        type="text"
-        placeholder="备注（可选）"
-        value={remark}
-        onChange={e => setRemark(e.target.value)}
-      />
-      <button type="submit">{initialData ? '保存' : '添加'}</button>
-    </form>
+    <Form
+      form={form}
+      layout="inline"
+      onFinish={handleFinish}
+      initialValues={initialData}
+      style={{ width: '100%' }}
+    >
+      <Form.Item name="dataset" initialValue={selectedDataset} rules={[{ required: true, message: '请选择知识库' }]}
+        style={{ minWidth: 180 }}>
+        <Select
+          placeholder="选择知识库"
+          value={selectedDataset}
+          onChange={onDatasetChange}
+          style={{ minWidth: 160 }}
+        >
+          {datasets.map(ds => (
+            <Select.Option key={ds.id} value={ds.id}>{ds.name}</Select.Option>
+          ))}
+        </Select>
+      </Form.Item>
+      <Form.Item name="name" rules={[{ required: true, message: '请输入网站名称' }]}
+        style={{ minWidth: 120 }}>
+        <Input placeholder="网站名称" />
+      </Form.Item>
+      <Form.Item name="url" rules={[{ required: true, message: '请输入新闻源URL' }]}
+        style={{ minWidth: 200 }}>
+        <Input placeholder="新闻源URL" type="url" />
+      </Form.Item>
+      <Form.Item name="remark" style={{ minWidth: 120 }}>
+        <Input placeholder="备注（可选）" />
+      </Form.Item>
+      <Form.Item>
+        <Button type="primary" htmlType="submit">{initialData ? '保存' : '添加'}</Button>
+      </Form.Item>
+    </Form>
   );
 };
 
