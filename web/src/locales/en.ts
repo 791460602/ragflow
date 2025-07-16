@@ -72,6 +72,7 @@ export default {
       flow: 'Agent',
       search: 'Search',
       welcome: 'Welcome to',
+      newsCollector: 'News Collector',
     },
     knowledgeList: {
       welcome: 'Welcome back',
