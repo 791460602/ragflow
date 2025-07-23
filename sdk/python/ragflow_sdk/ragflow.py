@@ -14,8 +14,10 @@
 #  limitations under the License.
 
 from typing import Optional
+import os
 
 import requests
+from requests_toolbelt.multipart.encoder import MultipartEncoder
 
 from .modules.agent import Agent
 from .modules.chat import Chat
@@ -279,3 +281,94 @@ class RAGFlow:
 
         if res.get("code") != 0:
             raise Exception(res["message"])
+
+    def upload_folder_to_dataset(self, folder_path: str, dataset_id: str, parent_id: str = ""):
+        """
+        Upload a folder and its contents to Ragflow, preserving directory structure,
+        then convert files to documents and link them to the specified dataset.
+        
+        Args:
+            folder_path: Local folder path to upload
+            dataset_id: Target dataset ID to link documents
+            parent_id: Parent folder ID in Ragflow (empty for root)
+            
+        Returns:
+            dict: Upload result with file and document information
+        """
+        # Step 1: Upload files to file management system
+        upload_result = self._upload_folder_preserve_structure(folder_path, parent_id)
+        
+        # Step 2: Get uploaded file IDs
+        file_ids = [file_info["id"] for file_info in upload_result.get("data", [])]
+        
+        if not file_ids:
+            return {"message": "No files uploaded", "data": []}
+        
+        # Step 3: Convert files to documents and link to dataset
+        convert_result = self._convert_files_to_dataset(file_ids, [dataset_id])
+        
+        return {
+            "message": "Successfully uploaded folder and linked to dataset",
+            "upload_result": upload_result,
+            "convert_result": convert_result
+        }
+
+    def _upload_folder_preserve_structure(self, folder_path: str, parent_id: str = ""):
+        """
+        Upload a folder preserving its directory structure using file upload API.
+        """
+        parts = []
+        if parent_id:
+            parts.append(('parent_id', parent_id))
+
+        # Walk through the local folder
+        for root, _, files in os.walk(folder_path):
+            for filename in files:
+                local_path = os.path.join(root, filename)
+                # Calculate the relative path of the file
+                relative_path = os.path.relpath(local_path, folder_path).replace('\\', '/')
+                
+                # Use the relative path as the filename in the multipart form
+                parts.append(('file', (relative_path, open(local_path, 'rb'), 'application/octet-stream')))
+
+        if len(parts) <= (1 if parent_id else 0):
+            return {"message": "The folder is empty, no upload needed.", "data": []}
+
+        encoder = MultipartEncoder(fields=parts)
+        
+        # Create headers for this specific request
+        temp_headers = self.authorization_header.copy()
+        temp_headers['Content-Type'] = encoder.content_type
+
+        try:
+            res = requests.post(
+                url=self.api_url + "/file/upload",
+                data=encoder,
+                headers=temp_headers
+            )
+            res.raise_for_status()
+            res_json = res.json()
+            if res_json.get("code") != 0:
+                raise Exception(res_json.get("message", "Upload failed"))
+            return res_json
+        finally:
+            # Close all opened files
+            for part in parts:
+                if isinstance(part, tuple) and len(part) == 2 and isinstance(part[1], tuple):
+                    if len(part[1]) >= 2 and hasattr(part[1][1], 'close'):
+                        part[1][1].close()
+
+    def _convert_files_to_dataset(self, file_ids: list[str], kb_ids: list[str]):
+        """
+        Convert uploaded files to documents and link them to datasets.
+        """
+        payload = {
+            "file_ids": file_ids,
+            "kb_ids": kb_ids
+        }
+        
+        res = self.post("/file2document/convert", payload)
+        res_json = res.json()
+        if res_json.get("code") != 0:
+            raise Exception(res_json.get("message", "File to document conversion failed"))
+        return res_json

@@ -90,3 +90,16 @@ class DataSet(Base):
         res = res.json()
         if res.get("code") != 0:
             raise Exception(res.get("message"))
+
+    def upload_folder(self, folder_path: str, parent_id: str = ""):
+        """
+        Upload a local folder to this dataset, preserving directory structure.
+        
+        Args:
+            folder_path: Local folder path to upload
+            parent_id: Parent folder ID in Ragflow (empty for root)
+            
+        Returns:
+            dict: Upload and conversion result
+        """
+        return self.rag.upload_folder_to_dataset(folder_path, self.id, parent_id)
