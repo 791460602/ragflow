@@ -94,6 +94,7 @@ class DataSet(Base):
     def upload_folder(self, folder_path: str, parent_id: str = ""):
         """
         Upload a local folder to this dataset, preserving directory structure.
+        Uses file management system + convert API for better security and structure preservation.
         
         Args:
             folder_path: Local folder path to upload
@@ -103,3 +104,17 @@ class DataSet(Base):
             dict: Upload and conversion result
         """
         return self.rag.upload_folder_to_dataset(folder_path, self.id, parent_id)
+    
+    def upload_folder_direct(self, folder_path: str):
+        """
+        Upload a local folder directly to this dataset.
+        Simpler but doesn't preserve file system structure in Ragflow's file management.
+        File paths are preserved in document names only.
+        
+        Args:
+            folder_path: Local folder path to upload
+            
+        Returns:
+            list: List of created documents
+        """
+        return self.rag.upload_folder_to_dataset_direct(folder_path, self.id)

@@ -361,6 +361,7 @@ class RAGFlow:
     def _convert_files_to_dataset(self, file_ids: list[str], kb_ids: list[str]):
         """
         Convert uploaded files to documents and link them to datasets.
+        Using the official API endpoint for better security and consistency.
         """
         payload = {
             "file_ids": file_ids,
@@ -372,3 +373,49 @@ class RAGFlow:
         if res_json.get("code") != 0:
             raise Exception(res_json.get("message", "File to document conversion failed"))
         return res_json
+    
+    def upload_folder_to_dataset_direct(self, folder_path: str, dataset_id: str):
+        """
+        Alternative implementation: Upload files directly to dataset without using file management system.
+        This bypasses the file management layer but is simpler and more direct.
+        
+        Args:
+            folder_path: Local folder path to upload
+            dataset_id: Target dataset ID
+            
+        Returns:
+            list: List of created documents
+        """
+        import os
+        
+        # Get all files recursively
+        file_list = []
+        for root, dirs, files in os.walk(folder_path):
+            for file in files:
+                abs_path = os.path.join(root, file)
+                rel_path = os.path.relpath(abs_path, folder_path)
+                file_list.append((abs_path, rel_path))
+        
+        # Prepare upload list for dataset.upload_documents
+        upload_list = []
+        for abs_path, rel_path in file_list:
+            with open(abs_path, "rb") as f:
+                blob = f.read()
+            upload_list.append({
+                "display_name": rel_path.replace("\\", "/"),  # Preserve directory structure in name
+                "blob": blob
+            })
+        
+        # Get dataset and upload
+        dataset = self.get_dataset_by_id(dataset_id)
+        return dataset.upload_documents(upload_list)
+    
+    def get_dataset_by_id(self, dataset_id: str):
+        """
+        Get dataset by ID
+        """
+        datasets = self.list_datasets()
+        for dataset in datasets:
+            if dataset.id == dataset_id:
+                return dataset
+        raise Exception(f"Dataset with ID {dataset_id} not found")
