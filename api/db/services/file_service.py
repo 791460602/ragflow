@@ -183,6 +183,26 @@ class FileService(CommonService):
 
     @classmethod
     @DB.connection_context()
+    def create_folder_with_tenant(cls, file, parent_id, name, count, tenant_id):
+        # Recursively create folder structure with explicit tenant_id
+        # Args:
+        #     file: Current file object
+        #     parent_id: Parent folder ID
+        #     name: List of folder names to create
+        #     count: Current depth in creation
+        #     tenant_id: Tenant ID to use instead of current_user.id
+        # Returns:
+        #     Created file object
+        if count > len(name) - 2:
+            return file
+        else:
+            file = cls.insert(
+                {"id": get_uuid(), "parent_id": parent_id, "tenant_id": tenant_id, "created_by": tenant_id, "name": name[count], "location": "", "size": 0, "type": FileType.FOLDER.value}
+            )
+            return cls.create_folder_with_tenant(file, file.id, name, count + 1, tenant_id)
+
+    @classmethod
+    @DB.connection_context()
     def is_parent_folder_exist(cls, parent_id):
         # Check if parent folder exists
         # Args:

@@ -99,12 +99,12 @@ def upload(tenant_id):
                 e, file = FileService.get_by_id(file_id_list[len_id_list - 1])
                 if not e:
                     return get_json_result(data=False, message="Folder not found!", code=404)
-                last_folder = FileService.create_folder(file, file_id_list[len_id_list - 1], file_obj_names, len_id_list)
+                last_folder = FileService.create_folder_with_tenant(file, file_id_list[len_id_list - 1], file_obj_names, len_id_list, tenant_id)
             else:
                 e, file = FileService.get_by_id(file_id_list[len_id_list - 2])
                 if not e:
                     return get_json_result(data=False, message="Folder not found!", code=404)
-                last_folder = FileService.create_folder(file, file_id_list[len_id_list - 2], file_obj_names, len_id_list)
+                last_folder = FileService.create_folder_with_tenant(file, file_id_list[len_id_list - 2], file_obj_names, len_id_list, tenant_id)
 
             filetype = filename_type(file_obj_names[file_len - 1])
             location = file_obj_names[file_len - 1]
