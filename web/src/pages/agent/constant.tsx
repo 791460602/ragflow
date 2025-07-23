@@ -265,6 +265,8 @@ export const initialRetrievalValues = {
   empty_response: '',
   ...initialSimilarityThresholdValue,
   ...initialKeywordsSimilarityWeightValue,
+  use_kg: false,
+  cross_languages: [],
   outputs: {
     formalized_content: {
       type: 'string',
@@ -320,6 +322,11 @@ export const initialCategorizeValues = {
   parameter: ModelVariableType.Precise,
   message_history_window_size: 1,
   category_description: {},
+  outputs: {
+    category_name: {
+      type: 'string',
+    },
+  },
 };
 
 export const initialMessageValues = {
