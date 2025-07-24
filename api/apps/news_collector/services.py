@@ -6,9 +6,17 @@
 
 import asyncio
 import threading
+import sys
+import os
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 import logging
+
+# 添加项目根路径，以便导入news_collector模块
+current_dir = os.path.dirname(__file__)
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 # 导入我们的新闻抓取模块
 from news_collector.models import (
