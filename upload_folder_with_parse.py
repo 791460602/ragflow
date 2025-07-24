@@ -21,7 +21,7 @@ from ragflow_sdk import RAGFlow
 # 配置参数
 API_KEY = "ragflow-M3NDJjZmEyNjYwZDExZjBhMTAwYjlkOD"  # 你的API密钥
 BASE_URL = "http://localhost:9380"  # RAGFlow服务地址
-LOCAL_FOLDER_PATH = r"/mnt/e/下载/讲义/01基础篇"  # 要上传的本地文件夹路径
+LOCAL_FOLDER_PATH = r"/mnt/e/下载/test"  # 要上传的本地文件夹路径
 DATASET_NAME = "讲义知识库"  # 目标知识库名称
 PARENT_ID = ""  # 上传到的父目录ID，空字符串表示根目录
 
