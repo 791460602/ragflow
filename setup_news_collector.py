@@ -43,12 +43,7 @@ def setup_news_collector():
         # 导入新闻抓取模块
         try:
             from news_collector.config import get_config
-            from news_collector.services_import import get_services
-            
-            # 获取services模块
-            services = get_services()
-            if services is None:
-                raise ImportError("Could not import services module")
+            from news_collector import services
             
             # 初始化RAGFlow客户端
             config = get_config("ragflow")
@@ -91,12 +86,7 @@ def register_api_routes(app):
 def create_demo_data():
     """创建演示数据"""
     try:
-        from news_collector.services_import import get_services
-        
-        # 获取services模块
-        services = get_services()
-        if services is None:
-            raise ImportError("Could not import services module")
+        from news_collector import services
         
         # 创建示例新闻源
         demo_sources = [

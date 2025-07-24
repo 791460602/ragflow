@@ -8,8 +8,16 @@ from flask import Blueprint, request, jsonify
 from typing import Dict, Any
 import asyncio
 import logging
+import sys
+import os
 
-from . import services
+# 添加项目根路径以导入news_collector模块
+current_dir = os.path.dirname(__file__)
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+from news_collector import services
 from .schemas import NewsSourceCreate
 
 logger = logging.getLogger(__name__)

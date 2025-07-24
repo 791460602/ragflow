@@ -17,11 +17,13 @@ __author__ = "RAGFlow Team"
 from .models import NewsSource, NewsTask, NewsContent
 from .scraper import NewsScraper
 from .manager import NewsManager
+from . import services
 
 __all__ = [
     "NewsSource",
     "NewsTask", 
     "NewsContent",
     "NewsScraper",
-    "NewsManager"
+    "NewsManager",
+    "services"
 ]

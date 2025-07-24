@@ -110,13 +110,8 @@ def demo_news_collector_integration(rag_client, dataset):
     
     try:
         # 尝试导入新闻抓取系统
-        from news_collector.services_import import get_services
+        from news_collector import services
         from news_collector.config import get_config
-        
-        # 获取services模块
-        services = get_services()
-        if services is None:
-            raise ImportError("Could not import services module")
         
         # 初始化新闻管理器
         services.initialize_news_manager(rag_client)
