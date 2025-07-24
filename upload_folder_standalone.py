@@ -204,8 +204,26 @@ def main():
         
         # 显示转换结果
         convert_data = convert_result.get("data", [])
+        document_ids = []
         if convert_data:
             print(f"📚 成功转换 {len(convert_data)} 个文档到知识库")
+            
+            # 提取文档ID用于解析
+            for item in convert_data:
+                if "document_id" in item:
+                    document_ids.append(item["document_id"])
+        
+        # 第七步：自动开始解析文档
+        if document_ids:
+            print(f"\n🔄 开始解析 {len(document_ids)} 个文档...")
+            try:
+                dataset.async_parse_documents(document_ids)
+                print("✅ 文档解析已开始！")
+                print("💡 解析是异步进行的，您可以在 RAGFlow 界面中查看解析进度")
+                print("📋 解析完成后，文档将可用于检索和问答")
+            except Exception as e:
+                print(f"⚠️  解析启动失败: {str(e)}")
+                print("💡 您可以稍后在 RAGFlow 界面中手动启动解析")
         
         print("\n🔗 文件已成功上传并关联到知识库，保持了原有的目录结构！")
         

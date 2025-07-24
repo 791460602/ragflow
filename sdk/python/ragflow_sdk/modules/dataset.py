@@ -91,7 +91,7 @@ class DataSet(Base):
         if res.get("code") != 0:
             raise Exception(res.get("message"))
 
-    def upload_folder(self, folder_path: str, parent_id: str = ""):
+    def upload_folder(self, folder_path: str, parent_id: str = "", auto_parse: bool = False):
         """
         Upload a local folder to this dataset, preserving directory structure.
         Uses file management system + convert API for better security and structure preservation.
@@ -99,13 +99,14 @@ class DataSet(Base):
         Args:
             folder_path: Local folder path to upload
             parent_id: Parent folder ID in Ragflow (empty for root)
+            auto_parse: Whether to automatically start parsing documents after upload
             
         Returns:
             dict: Upload and conversion result
         """
-        return self.rag.upload_folder_to_dataset(folder_path, self.id, parent_id)
+        return self.rag.upload_folder_to_dataset(folder_path, self.id, parent_id, auto_parse)
     
-    def upload_folder_direct(self, folder_path: str):
+    def upload_folder_direct(self, folder_path: str, auto_parse: bool = False):
         """
         Upload a local folder directly to this dataset.
         Simpler but doesn't preserve file system structure in Ragflow's file management.
@@ -113,8 +114,20 @@ class DataSet(Base):
         
         Args:
             folder_path: Local folder path to upload
+            auto_parse: Whether to automatically start parsing documents after upload
             
         Returns:
             list: List of created documents
         """
-        return self.rag.upload_folder_to_dataset_direct(folder_path, self.id)
+        documents = self.rag.upload_folder_to_dataset_direct(folder_path, self.id)
+        
+        # Auto-parse if requested
+        if auto_parse and documents:
+            try:
+                document_ids = [doc.id for doc in documents]
+                self.async_parse_documents(document_ids)
+                print(f"✅ 自动解析已开始，文档数量: {len(document_ids)}")
+            except Exception as e:
+                print(f"⚠️  自动解析启动失败: {str(e)}")
+        
+        return documents

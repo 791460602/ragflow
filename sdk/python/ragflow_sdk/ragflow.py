@@ -284,7 +284,7 @@ class RAGFlow:
         if res.get("code") != 0:
             raise Exception(res["message"])
 
-    def upload_folder_to_dataset(self, folder_path: str, dataset_id: str, parent_id: str = ""):
+    def upload_folder_to_dataset(self, folder_path: str, dataset_id: str, parent_id: str = "", auto_parse: bool = False):
         """
         Upload a folder and its contents to Ragflow, preserving directory structure,
         then convert files to documents and link them to the specified dataset.
@@ -293,6 +293,7 @@ class RAGFlow:
             folder_path: Local folder path to upload
             dataset_id: Target dataset ID to link documents
             parent_id: Parent folder ID in Ragflow (empty for root)
+            auto_parse: Whether to automatically start parsing documents after upload
             
         Returns:
             dict: Upload result with file and document information
@@ -309,11 +310,37 @@ class RAGFlow:
         # Step 3: Convert files to documents and link to dataset
         convert_result = self._convert_files_to_dataset(file_ids, [dataset_id])
         
-        return {
+        result = {
             "message": "Successfully uploaded folder and linked to dataset",
             "upload_result": upload_result,
             "convert_result": convert_result
         }
+        
+        # Step 4: Auto-parse documents if requested
+        if auto_parse:
+            document_ids = []
+            convert_data = convert_result.get("data", [])
+            for item in convert_data:
+                if "document_id" in item:
+                    document_ids.append(item["document_id"])
+            
+            if document_ids:
+                try:
+                    dataset = self.get_dataset_by_id(dataset_id)
+                    dataset.async_parse_documents(document_ids)
+                    result["parse_result"] = {
+                        "status": "started",
+                        "document_count": len(document_ids),
+                        "message": "Document parsing started successfully"
+                    }
+                except Exception as e:
+                    result["parse_result"] = {
+                        "status": "failed",
+                        "error": str(e),
+                        "message": "Failed to start document parsing"
+                    }
+        
+        return result
 
     def _upload_folder_preserve_structure(self, folder_path: str, parent_id: str = ""):
         """
