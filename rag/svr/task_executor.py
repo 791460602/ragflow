@@ -243,7 +243,7 @@ async def build_chunks(task, progress_callback):
         st = timer()
         bucket, name = File2DocumentService.get_storage_address(doc_id=task["doc_id"])
         binary = await get_storage_binary(bucket, name)
-        logging.info("From minio({}) {}/{}".format(timer() - st, task["location"], task["name"]))
+        logging.info("From minio({}) {}/{}, binary size: {}".format(timer() - st, task["location"], task["name"], len(binary) if binary else 'None'))
     except TimeoutError:
         progress_callback(-1, "Internal server error: Fetch file from minio timeout. Could you try it again.")
         logging.exception(
@@ -259,7 +259,11 @@ async def build_chunks(task, progress_callback):
 
     try:
         async with chunk_limiter:
-            cks = await trio.to_thread.run_sync(lambda: chunker.chunk(task["name"], binary=binary, from_page=task["from_page"],
+            # Use the actual storage location name instead of task["name"] to avoid file not found errors
+            # Pass the actual filename from storage, but the binary data should be used for content
+            actual_filename = name if name else task["name"]
+            logging.info("Chunking with filename: '{}', binary size: {}".format(actual_filename, len(binary) if binary else 'None'))
+            cks = await trio.to_thread.run_sync(lambda: chunker.chunk(actual_filename, binary=binary, from_page=task["from_page"],
                                 to_page=task["to_page"], lang=task["language"], callback=progress_callback,
                                 kb_id=task["kb_id"], parser_config=task["parser_config"], tenant_id=task["tenant_id"]))
         logging.info("Chunking({}) {}/{} done".format(timer() - st, task["location"], task["name"]))
