@@ -27,7 +27,7 @@ AUTH_TOKEN = "IjMwNTRjMjY0NjkzMDExZjA5ODU1M2I3YzM2NDc4NDA0Ig.aIM-PQ.HcZwkiqSWhvt
 SESSION_COOKIE = "qwvk05mY7F4MiSwJHQ6ZFSA-cy1OqAGJ2OmwNsrIhT0"
 
 # 知识库ID - 请在RAGFlow前端创建知识库后填入ID
-KNOWLEDGE_BASE_ID = ""  # 请填入真实的知识库ID
+KNOWLEDGE_BASE_ID = "7e95b1ba694111f098563b7c36478404"  # 请填入真实的知识库ID
 
 # 测试用新闻源配置
 TEST_NEWS_SOURCES = [
@@ -139,7 +139,7 @@ def check_response(response, operation):
         return False
 
 # ==================== 测试函数 ====================
-def test_health_check():
+def run_health_check():
     """测试健康检查"""
     print_step(1, "健康检查")
     
@@ -151,7 +151,7 @@ def test_health_check():
         return True
     return False
 
-def test_create_news_sources():
+def run_create_news_sources():
     """测试创建新闻源"""
     print_step(2, "创建新闻源")
     
@@ -163,7 +163,7 @@ def test_create_news_sources():
         response = make_request('POST', '/sources', json=source_config)
         result = check_response(response, f"创建新闻源 - {source_config['name']}")
         
-        if result and result.get('retcode') == 0:
+        if result and result.get('code') == 0:
             source_data = result.get('data')
             created_sources.append(source_data)
             print(f"✅ 新闻源创建成功 - ID: {source_data.get('id')}")
@@ -172,14 +172,14 @@ def test_create_news_sources():
     
     return created_sources
 
-def test_list_news_sources():
+def run_list_news_sources():
     """测试获取新闻源列表"""
     print_step(3, "获取新闻源列表")
     
     response = make_request('GET', '/sources')
     result = check_response(response, "获取新闻源列表")
     
-    if result and result.get('retcode') == 0:
+    if result and result.get('code') == 0:
         sources = result.get('data', [])
         print(f"📋 总计 {len(sources)} 个新闻源:")
         for source in sources:
@@ -187,7 +187,7 @@ def test_list_news_sources():
         return sources
     return []
 
-def test_create_news_task(source_ids):
+def run_create_news_task(source_ids):
     """测试创建抓取任务"""
     print_step(4, "创建抓取任务")
     
@@ -212,13 +212,13 @@ def test_create_news_task(source_ids):
     response = make_request('POST', '/tasks', json=task_config)
     result = check_response(response, "创建抓取任务")
     
-    if result and result.get('retcode') == 0:
+    if result and result.get('code') == 0:
         task_data = result.get('data')
         print(f"✅ 任务创建成功 - ID: {task_data.get('id')}")
         return task_data
     return None
 
-def test_execute_task(task_id):
+def run_execute_task(task_id):
     """测试执行抓取任务"""
     print_step(5, "执行抓取任务")
     
@@ -228,7 +228,7 @@ def test_execute_task(task_id):
     response = make_request('POST', f'/tasks/{task_id}/execute')
     result = check_response(response, "执行抓取任务")
     
-    if not result or result.get('retcode') != 0:
+    if not result or result.get('code') != 0:
         return False
     
     print("⏳ 任务已开始执行，等待完成...")
@@ -246,7 +246,7 @@ def test_execute_task(task_id):
         response = make_request('GET', f'/tasks/{task_id}')
         if response and response.status_code == 200:
             task_info = response.json()
-            if task_info.get('retcode') == 0:
+            if task_info.get('code') == 0:
                 task_data = task_info.get('data')
                 status = task_data.get('status')
                 statistics = task_data.get('statistics', {})
@@ -264,14 +264,14 @@ def test_execute_task(task_id):
     print("⚠️ 任务执行超时")
     return False
 
-def test_list_news_content():
+def run_list_news_content():
     """测试获取新闻内容列表"""
     print_step(6, "查看抓取的新闻内容")
     
     response = make_request('GET', '/news?page=1&page_size=20')
     result = check_response(response, "获取新闻内容列表")
     
-    if result and result.get('retcode') == 0:
+    if result and result.get('code') == 0:
         data = result.get('data', {})
         news_list = data.get('data', [])
         total = data.get('total', 0)
@@ -287,14 +287,14 @@ def test_list_news_content():
         return news_list
     return []
 
-def test_get_statistics():
+def run_get_statistics():
     """测试获取统计信息"""
     print_step(7, "查看统计信息")
     
     response = make_request('GET', '/statistics')
     result = check_response(response, "获取统计信息")
     
-    if result and result.get('retcode') == 0:
+    if result and result.get('code') == 0:
         stats = result.get('data', {})
         print(f"📊 系统统计:")
         print(f"  - 总新闻源数: {stats.get('total_sources', 0)}")
@@ -306,14 +306,14 @@ def test_get_statistics():
         return True
     return False
 
-def test_task_documents(task_id):
+def run_task_documents(task_id):
     """测试查看任务生成的文档"""
     print_step(8, "查看任务生成的文档")
     
     response = make_request('GET', f'/tasks/{task_id}/documents')
     result = check_response(response, "获取任务文档")
     
-    if result and result.get('retcode') == 0:
+    if result and result.get('code') == 0:
         documents = result.get('data', [])
         print(f"📄 任务生成了 {len(documents)} 个文档:")
         for i, doc in enumerate(documents[:5]):  # 只显示前5个
@@ -364,12 +364,12 @@ def main():
     
     try:
         # 1. 健康检查
-        if not test_health_check():
+        if not run_health_check():
             print("❌ 服务不可用，请检查RAGFlow是否正常运行")
             return False
         
         # 2. 创建新闻源
-        created_sources = test_create_news_sources()
+        created_sources = run_create_news_sources()
         if not created_sources:
             print("❌ 没有成功创建任何新闻源")
             return False
@@ -377,10 +377,10 @@ def main():
         source_ids = [source['id'] for source in created_sources]
         
         # 3. 列出新闻源
-        all_sources = test_list_news_sources()
+        all_sources = run_list_news_sources()
         
         # 4. 创建抓取任务
-        task = test_create_news_task(source_ids)
+        task = run_create_news_task(source_ids)
         if not task:
             print("❌ 任务创建失败")
             return False
@@ -388,18 +388,18 @@ def main():
         task_id = task['id']
         
         # 5. 执行抓取任务
-        if not test_execute_task(task_id):
+        if not run_execute_task(task_id):
             print("❌ 任务执行失败")
             return False
         
         # 6. 查看新闻内容
-        news_list = test_list_news_content()
+        news_list = run_list_news_content()
         
         # 7. 查看统计信息
-        test_get_statistics()
+        run_get_statistics()
         
         # 8. 查看任务文档
-        documents = test_task_documents(task_id)
+        documents = run_task_documents(task_id)
         
         # 最终报告
         print_section("测试完成报告")
