@@ -165,7 +165,7 @@ def test_services():
                 print("✅ 更新新闻源成功")
             
             # 测试获取新闻源列表
-            sources_list = services.get_news_sources(page=1, size=10)
+            sources_list = services.get_news_sources(page=1, page_size=10)
             print(f"✅ 获取新闻源列表成功: 共 {sources_list['total']} 个")
             
             return True

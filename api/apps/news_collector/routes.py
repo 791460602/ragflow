@@ -1,12 +1,11 @@
 """
 新闻抓取API路由
 
-实现完整的新闻抓取与管理API接口
+实现完整的新闻抓取与管理API接口，使用数据库存储
 """
 
 from flask import Blueprint, request, jsonify
 from typing import Dict, Any
-import asyncio
 import logging
 import sys
 import os
@@ -17,8 +16,29 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from news_collector import services
-from .schemas import NewsSourceCreate
+# 使用数据库服务层
+from news_collector.db_services import (
+    initialize_news_manager,
+    get_news_manager,
+    get_knowledge_bases,
+    create_knowledge_base,
+    get_news_sources,
+    get_news_source,
+    create_news_source,
+    update_news_source,
+    delete_news_source,
+    get_news_tasks,
+    get_news_task,
+    create_news_task,
+    update_news_task,
+    delete_news_task,
+    execute_news_task,
+    get_news_contents,
+    get_news_content,
+    delete_news_content,
+    get_statistics_overview,
+    get_source_statistics
+)
 
 logger = logging.getLogger(__name__)
 
