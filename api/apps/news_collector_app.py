@@ -321,10 +321,15 @@ def get_news():
         page = int(request.args.get('page', 1))
         page_size = int(request.args.get('page_size', 10))
         source_id = request.args.get('source_id')
-        parse_status = request.args.get('parse_status')
+        parsed_only_str = request.args.get('parsed_only')
+        
+        # 处理parsed_only参数
+        parsed_only = None
+        if parsed_only_str is not None:
+            parsed_only = parsed_only_str.lower() in ['true', '1', 'yes']
         
         news_list, total = NewsContentService.get_by_user(
-            user_id, tenant_id, page, page_size, source_id, parse_status
+            user_id, tenant_id, page, page_size, source_id, parsed_only
         )
         
         result = {

@@ -230,19 +230,15 @@ class NewsContentService(CommonService):
             "id": content_id,
             "task_id": task_id,
             "source_id": source_id,
-            "kb_id": kb_id,
             "user_id": user_id,
             "tenant_id": tenant_id,
-            "title": title,
-            "content": content,
-            "summary": summary,
-            "url": url,
+            "original_url": url,
             "author": author,
             "publish_time": publish_time,
             "fetch_time": current_timestamp(),
-            "parse_status": "pending",
             "content_hash": content_hash,
             "word_count": len(content) if content else 0,
+            "summary": summary,
             "create_time": current_timestamp(),
             "create_date": datetime.now(),
             "update_time": current_timestamp(),
@@ -256,7 +252,7 @@ class NewsContentService(CommonService):
     @DB.connection_context()
     def get_by_user(cls, user_id: str, tenant_id: str, page: int = 1, 
                    page_size: int = 10, source_id: str = None,
-                   parse_status: str = None) -> tuple:
+                   parsed_only: bool = None) -> tuple:
         """获取用户的新闻内容列表（分页）"""
         query = cls.model.select().where(
             cls.model.user_id == user_id,
@@ -266,8 +262,13 @@ class NewsContentService(CommonService):
         if source_id:
             query = query.where(cls.model.source_id == source_id)
             
-        if parse_status:
-            query = query.where(cls.model.parse_status == parse_status)
+        if parsed_only is not None:
+            if parsed_only:
+                # 只获取已解析的（有document_id的）
+                query = query.where(cls.model.document_id.is_null(False))
+            else:
+                # 只获取未解析的（没有document_id的）
+                query = query.where(cls.model.document_id.is_null(True))
         
         # 计算总数
         total = query.count()
@@ -281,17 +282,13 @@ class NewsContentService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def update_parse_status(cls, content_id: str, parse_status: str, 
-                           doc_id: str = None) -> bool:
-        """更新解析状态"""
+    def update_document_relation(cls, content_id: str, document_id: str = None) -> bool:
+        """更新文档关联（替代原来的parse_status）"""
         update_data = {
-            "parse_status": parse_status,
+            "document_id": document_id,
             "update_time": current_timestamp(),
             "update_date": datetime.now()
         }
-        
-        if doc_id:
-            update_data["doc_id"] = doc_id
             
         return cls.model.update(**update_data).where(
             cls.model.id == content_id
@@ -307,18 +304,18 @@ class NewsContentService(CommonService):
             cls.model.tenant_id == tenant_id
         ).count()
         
-        # 已解析数
+        # 已解析数（有document_id的表示已转换为文档）
         parsed_count = cls.model.select().where(
             cls.model.user_id == user_id,
             cls.model.tenant_id == tenant_id,
-            cls.model.parse_status == "parsed"
+            cls.model.document_id.is_null(False)
         ).count()
         
-        # 待解析数
+        # 待解析数（没有document_id的表示待处理）
         pending_count = cls.model.select().where(
             cls.model.user_id == user_id,
             cls.model.tenant_id == tenant_id,
-            cls.model.parse_status == "pending"
+            cls.model.document_id.is_null(True)
         ).count()
         
         return {
