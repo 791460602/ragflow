@@ -113,18 +113,19 @@ class NewsTaskService(CommonService):
                    max_articles_per_source: int = 10) -> NewsTask:
         """创建抓取任务"""
         # 验证知识库是否存在
-        kb = KnowledgebaseService.get_by_id(kb_id)
-        if not kb or kb.tenant_id != tenant_id:
+        success, kb = KnowledgebaseService.get_by_id(kb_id)
+        if not success or not kb or kb.tenant_id != tenant_id:
             raise ValueError("知识库不存在或无权限访问")
         
-        # 验证新闻源是否存在
-        sources = NewsSourceService.model.select().where(
+        # 验证新闻源是否存在且属于当前用户
+        sources = list(NewsSourceService.model.select().where(
             NewsSourceService.model.id.in_(source_ids),
+            NewsSourceService.model.user_id == user_id,
             NewsSourceService.model.tenant_id == tenant_id,
             NewsSourceService.model.status == "active"
-        )
+        ))
         
-        if len(list(sources)) != len(source_ids):
+        if len(sources) != len(source_ids):
             raise ValueError("部分新闻源不存在或无权限访问")
         
         task_id = get_uuid()
@@ -208,9 +209,10 @@ class NewsContentService(CommonService):
     @classmethod
     @DB.connection_context()
     def create_content(cls, task_id: str, source_id: str, title: str, content: str,
-                      url: str, user_id: str, tenant_id: str, kb_id: str = None,
+                      url: str, user_id: str, tenant_id: str,
                       author: str = None, publish_time: int = None, 
-                      summary: str = None) -> NewsContent:
+                      summary: str = None, category: str = None,
+                      tags: List[str] = None) -> NewsContent:
         """创建新闻内容"""
         content_id = get_uuid()
         
@@ -239,6 +241,8 @@ class NewsContentService(CommonService):
             "content_hash": content_hash,
             "word_count": len(content) if content else 0,
             "summary": summary,
+            "category": category,
+            "tags": tags or [],
             "create_time": current_timestamp(),
             "create_date": datetime.now(),
             "update_time": current_timestamp(),
