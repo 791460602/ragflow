@@ -6,6 +6,7 @@
 
 from flask import Blueprint, request, jsonify
 from typing import Dict, Any
+import asyncio
 import logging
 import sys
 import os
@@ -40,6 +41,10 @@ from news_collector.db_services import (
     get_source_statistics
 )
 
+# 导入API服务层用于兼容性
+from . import services
+from .schemas import NewsSourceCreate
+
 logger = logging.getLogger(__name__)
 
 # 创建蓝图
@@ -64,14 +69,14 @@ def handle_error(error: Exception, default_message: str = "操作失败") -> Dic
 # ===== 知识库管理 =====
 
 @news_collector_bp.route('/knowledge_bases', methods=['GET'])
-def get_knowledge_bases():
+def get_knowledge_bases_route():
     """获取知识库列表"""
     try:
         page = int(request.args.get('page', 1))
         size = int(request.args.get('size', 20))
         keyword = request.args.get('keyword', '')
         
-        knowledge_bases = services.get_knowledge_bases()
+        knowledge_bases = get_knowledge_bases()
         
         # 简单的分页和过滤
         if keyword:
@@ -96,7 +101,7 @@ def get_knowledge_bases():
 
 
 @news_collector_bp.route('/knowledge_bases', methods=['POST'])
-def create_knowledge_base():
+def create_knowledge_base_route():
     """创建知识库"""
     try:
         data = request.get_json()
@@ -105,11 +110,7 @@ def create_knowledge_base():
         if not data.get('name'):
             return jsonify(create_response(400, "知识库名称不能为空")), 400
         
-        result = services.create_knowledge_base(
-            name=data['name'],
-            description=data.get('description', ''),
-            chunk_method=data.get('chunk_method', 'naive')
-        )
+        result = create_knowledge_base(data)
         
         if result:
             return jsonify(create_response(message="创建成功", data={"id": result["id"]}))
@@ -123,7 +124,7 @@ def create_knowledge_base():
 # ===== 新闻源管理 =====
 
 @news_collector_bp.route('/sources', methods=['GET'])
-def get_news_sources():
+def get_news_sources_route():
     """获取新闻源列表"""
     try:
         page = int(request.args.get('page', 1))
@@ -133,17 +134,17 @@ def get_news_sources():
         sort_by = request.args.get('sort_by', 'created_at')
         order = request.args.get('order', 'desc')
         
-        data = services.get_news_sources(page, size, keyword, status, sort_by, order)
+        data = services.get_news_sources_paginated(page, size, keyword, status, sort_by, order)
         return jsonify(create_response(data=data))
     except Exception as e:
         return jsonify(handle_error(e)), 500
 
 
 @news_collector_bp.route('/sources/<int:source_id>', methods=['GET'])
-def get_news_source(source_id: int):
+def get_news_source_route(source_id: int):
     """获取单个新闻源详情"""
     try:
-        source = services.get_news_source(source_id)
+        source = get_news_source(source_id)
         if source:
             return jsonify(create_response(data=source))
         else:
@@ -153,7 +154,7 @@ def get_news_source(source_id: int):
 
 
 @news_collector_bp.route('/sources', methods=['POST'])
-def create_news_source():
+def create_news_source_route():
     """创建新闻源"""
     try:
         data = request.get_json()
@@ -164,7 +165,7 @@ def create_news_source():
             if not data.get(field):
                 return jsonify(create_response(400, f"{field}不能为空")), 400
         
-        result = services.create_news_source(data)
+        result = create_news_source(data)
         if result:
             return jsonify(create_response(message="创建成功", data=result))
         else:
@@ -175,12 +176,12 @@ def create_news_source():
 
 
 @news_collector_bp.route('/sources/<int:source_id>', methods=['PUT'])
-def update_news_source(source_id: int):
+def update_news_source_route(source_id: int):
     """更新新闻源"""
     try:
         data = request.get_json()
         
-        result = services.update_news_source(source_id, data)
+        result = update_news_source(source_id, data)
         if result:
             return jsonify(create_response(message="更新成功", data=result))
         else:
@@ -191,10 +192,10 @@ def update_news_source(source_id: int):
 
 
 @news_collector_bp.route('/sources/<int:source_id>', methods=['DELETE'])
-def delete_news_source(source_id: int):
+def delete_news_source_route(source_id: int):
     """删除新闻源"""
     try:
-        success = services.delete_news_source(source_id)
+        success = delete_news_source(source_id)
         if success:
             return jsonify(create_response(message="删除成功"))
         else:
@@ -509,7 +510,7 @@ def delete_news_source_simple(source_id: int):
 def get_news_history():
     """获取新闻历史记录（兼容现有前端）"""
     try:
-        history = services.get_news_history()
+        history = services.get_news_history_simple()
         return jsonify([item.dict() for item in history])
     except Exception as e:
         logger.error(f"Error getting news history: {str(e)}")
