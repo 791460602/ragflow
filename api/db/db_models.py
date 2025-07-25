@@ -1080,36 +1080,31 @@ class NewsTask(DataBaseModel):
 
 
 class NewsContent(DataBaseModel):
-    """新闻内容模型"""
+    """新闻内容模型 - 优化版本，直接关联Document"""
     id = CharField(max_length=32, primary_key=True)
     task_id = CharField(max_length=32, null=False, help_text="关联任务ID", index=True)
     source_id = CharField(max_length=32, null=False, help_text="新闻源ID", index=True)
-    kb_id = CharField(max_length=32, null=True, help_text="知识库ID", index=True)
+    document_id = CharField(max_length=32, null=True, help_text="关联的Document ID", index=True)
     user_id = CharField(max_length=32, null=False, help_text="用户ID", index=True)
     tenant_id = CharField(max_length=32, null=False, help_text="租户ID", index=True)
     
-    # 新闻内容
-    title = CharField(max_length=512, null=False, help_text="新闻标题", index=True)
-    content = TextField(null=True, help_text="新闻正文")
-    summary = TextField(null=True, help_text="摘要")
-    url = TextField(null=False, help_text="原文URL")
+    # 新闻元数据（不重复存储内容）
+    original_url = TextField(null=False, help_text="原文URL")
     author = CharField(max_length=128, null=True, help_text="作者")
-    
-    # 时间信息
     publish_time = BigIntegerField(null=True, help_text="发布时间戳", index=True)
     fetch_time = BigIntegerField(null=False, help_text="抓取时间戳", index=True)
     
-    # 处理状态
-    parse_status = CharField(max_length=16, null=False, default="pending", 
-                           help_text="解析状态: pending|parsed|failed", index=True)
-    doc_id = CharField(max_length=32, null=True, help_text="关联文档ID", index=True)
+    # 新闻特有字段
+    category = CharField(max_length=64, null=True, help_text="新闻分类", index=True)
+    tags = JSONField(null=False, default=[], help_text="新闻标签")
+    summary = TextField(null=True, help_text="新闻摘要")
     
     # 内容特征
     content_hash = CharField(max_length=64, null=True, help_text="内容哈希值（用于去重）", index=True)
     word_count = IntegerField(default=0, help_text="字数统计")
     
     def __str__(self):
-        return self.title
+        return f"News_{self.id}"
     
     class Meta:
         db_table = "news_content"
