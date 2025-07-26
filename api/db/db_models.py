@@ -1055,6 +1055,11 @@ class NewsTask(DataBaseModel):
     source_ids = JSONField(null=False, default=[], help_text="新闻源ID列表")
     auto_parse = BooleanField(default=True, help_text="是否自动解析到知识库")
     max_articles_per_source = IntegerField(default=10, help_text="每个源最大抓取文章数")
+    crawler_config = JSONField(null=True, default={
+        "type": "demo",
+        "timeout": 300,
+        "output_format": "markdown"
+    }, help_text="爬虫工具配置")
     
     # 任务状态
     status = CharField(max_length=16, null=False, default="pending", 

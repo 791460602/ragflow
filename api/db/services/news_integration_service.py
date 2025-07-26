@@ -357,69 +357,51 @@ class NewsDocumentIntegrationService:
             if not sources:
                 raise ValueError("没有找到有效的新闻源")
             
-            # 创建新闻文件夹结构
-            news_root_folder = cls.create_news_folder_structure(
-                task.kb_id, task.tenant_id, task.user_id
+            # 准备爬虫配置
+            crawler_config = task.crawler_config or {"type": "demo"}
+            
+            # 创建输出目录
+            import tempfile
+            output_dir = tempfile.mkdtemp(prefix=f"news_crawl_{task.id}_")
+            
+            # 执行爬虫任务
+            executor = NewsTaskExecutor(crawler_config)
+            crawl_results = executor.execute_task(
+                {
+                    "task_id": task.id,
+                    "max_articles_per_source": task.max_articles_per_source,
+                    "output_directory": output_dir
+                },
+                [{"id": s.id, "name": s.name, "url": s.url, "fetch_config": s.fetch_config} for s in sources]
             )
             
-            # 执行抓取任务
-            executor = NewsTaskExecutor()
+            # 使用upload_folder集成到RAGFlow
+            upload_results = cls._upload_crawled_folder(
+                output_dir, 
+                task.kb_id, 
+                task.user_id, 
+                task.tenant_id,
+                task.auto_parse
+            )
+            
+            # 合并结果
             results = {
-                "total_articles": 0,
-                "success_count": 0,
-                "failed_count": 0,
-                "skipped_count": 0
+                "crawl_phase": crawl_results,
+                "upload_phase": upload_results,
+                "total_articles": crawl_results.get("total_articles", 0),
+                "success_count": upload_results.get("success_count", 0),
+                "failed_count": crawl_results.get("failed_count", 0) + upload_results.get("failed_count", 0),
+                "output_directory": output_dir
             }
             
+            # 更新新闻源统计
             for source in sources:
-                try:
-                    # 为每个新闻源创建文件夹
-                    source_folder_id = cls.create_source_folder(source, news_root_folder, task.kb_id)
-                    
-                    # 抓取新闻
-                    source_config = {
-                        "url": source.url,
-                        "fetch_config": source.fetch_config
-                    }
-                    
-                    fetch_results = executor.execute_task(
-                        {"max_articles_per_source": task.max_articles_per_source},
-                        [source_config]
-                    )
-                    
-                    # 转换新闻为文档
-                    for article_data in fetch_results.get("articles", []):
-                        try:
-                            document, news_content = cls.convert_news_to_document(
-                                article_data, task, source, source_folder_id
-                            )
-                            
-                            if document and news_content:
-                                results["success_count"] += 1
-                                
-                                # 如果启用自动解析，触发文档解析
-                                if task.auto_parse:
-                                    cls._trigger_document_parsing(document.id)
-                            else:
-                                results["skipped_count"] += 1
-                                
-                        except Exception as e:
-                            logger.error(f"转换新闻失败: {e}")
-                            results["failed_count"] += 1
-                    
-                    results["total_articles"] += len(fetch_results.get("articles", []))
-                    
-                    # 更新新闻源统计
-                    NewsSource.update(
-                        total_articles=NewsSource.total_articles + len(fetch_results.get("articles", [])),
-                        last_fetch_time=current_timestamp(),
-                        update_time=current_timestamp(),
-                        update_date=datetime.now()
-                    ).where(NewsSource.id == source.id).execute()
-                    
-                except Exception as e:
-                    logger.error(f"处理新闻源失败 {source.name}: {e}")
-                    results["failed_count"] += 1
+                NewsSource.update(
+                    total_articles=NewsSource.total_articles + crawl_results.get("total_articles", 0) // len(sources),
+                    last_fetch_time=current_timestamp(),
+                    update_time=current_timestamp(),
+                    update_date=datetime.now()
+                ).where(NewsSource.id == source.id).execute()
             
             # 更新任务状态为完成
             NewsTask.update(
@@ -443,6 +425,180 @@ class NewsDocumentIntegrationService:
             
             logger.error(f"新闻任务执行失败: {e}")
             raise
+    
+    @classmethod
+    def _upload_crawled_folder(cls, output_dir: str, kb_id: str, user_id: str, 
+                              tenant_id: str, auto_parse: bool = True) -> Dict[str, Any]:
+        """将爬取的新闻文件夹上传到RAGFlow"""
+        
+        try:
+            from api.db.services.document_service import DocumentService
+            from api.db.services.file_service import FileService
+            import os
+            
+            sources_dir = os.path.join(output_dir, "sources")
+            if not os.path.exists(sources_dir):
+                raise ValueError("爬虫输出目录结构不正确")
+            
+            results = {
+                "total_files": 0,
+                "success_count": 0,
+                "failed_count": 0,
+                "documents": []
+            }
+            
+            # 遍历每个新闻源目录
+            for source_name in os.listdir(sources_dir):
+                source_path = os.path.join(sources_dir, source_name)
+                if not os.path.isdir(source_path):
+                    continue
+                
+                logger.info(f"处理新闻源目录: {source_name}")
+                
+                # 处理该源下的所有文章文件
+                for filename in os.listdir(source_path):
+                    if filename.endswith(('.md', '.txt')) and not filename.startswith('.'):
+                        file_path = os.path.join(source_path, filename)
+                        results["total_files"] += 1
+                        
+                        try:
+                            # 使用现有的文档服务创建文档
+                            doc_result = cls._create_document_from_file(
+                                file_path, kb_id, user_id, tenant_id, source_name
+                            )
+                            
+                            if doc_result:
+                                results["documents"].append(doc_result)
+                                results["success_count"] += 1
+                                
+                                # 如果启用自动解析，触发解析
+                                if auto_parse:
+                                    cls._trigger_document_parsing(doc_result["id"])
+                            else:
+                                results["failed_count"] += 1
+                                
+                        except Exception as e:
+                            logger.error(f"处理文件失败 {file_path}: {e}")
+                            results["failed_count"] += 1
+            
+            logger.info(f"文件夹上传完成: 总计 {results['total_files']} 个文件, 成功 {results['success_count']} 个")
+            return results
+            
+        except Exception as e:
+            logger.error(f"上传爬取文件夹失败: {e}")
+            raise
+    
+    @classmethod
+    def _create_document_from_file(cls, file_path: str, kb_id: str, user_id: str, 
+                                  tenant_id: str, source_name: str) -> Optional[Dict[str, Any]]:
+        """从文件创建RAGFlow文档"""
+        
+        try:
+            import os
+            from api.db import ParserType, FileType
+            from api.utils.storage_factory import STORAGE_IMPL
+            
+            # 读取文件内容
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # 解析frontmatter（如果是markdown文件）
+            metadata = {}
+            if file_path.endswith('.md') and content.startswith('---'):
+                try:
+                    import yaml
+                    parts = content.split('---', 2)
+                    if len(parts) >= 3:
+                        metadata = yaml.safe_load(parts[1])
+                        content = parts[2].strip()
+                except:
+                    pass
+            
+            filename = os.path.basename(file_path)
+            title = metadata.get('title', os.path.splitext(filename)[0])
+            
+            # 创建文件记录
+            file_id = get_uuid()
+            storage_location = f"news/{kb_id}/{file_id}.txt"
+            
+            file_data = {
+                "id": file_id,
+                "parent_id": "",  # 根目录
+                "tenant_id": tenant_id,
+                "created_by": user_id,
+                "name": filename,
+                "type": FileType.TEXT.value,
+                "source_type": "news_crawler",
+                "size": len(content),
+                "location": storage_location,
+                "create_time": current_timestamp(),
+                "create_date": datetime.now(),
+                "update_time": current_timestamp(),
+                "update_date": datetime.now()
+            }
+            
+            file_obj = File.create(**file_data)
+            
+            # 创建文档记录
+            doc_id = get_uuid()
+            doc_data = {
+                "id": doc_id,
+                "kb_id": kb_id,
+                "parser_id": ParserType.NAIVE.value,
+                "parser_config": {"pages": [[1, 1000000]]},
+                "source_type": "news_crawler",
+                "type": FileType.TEXT.value,
+                "created_by": user_id,
+                "name": title,
+                "location": storage_location,
+                "size": len(content),
+                "token_num": 0,
+                "chunk_num": 0,
+                "progress": 0,
+                "progress_msg": "等待处理",
+                "run": "0",  # 准备运行
+                "status": "1",  # 有效
+                "suffix": "txt",
+                "meta_fields": {
+                    "source_url": metadata.get('url', ''),
+                    "author": metadata.get('author', ''),
+                    "publish_time": metadata.get('publish_time', ''),
+                    "news_source": source_name,
+                    "category": metadata.get('category', ''),
+                    "tags": metadata.get('tags', [])
+                },
+                "create_time": current_timestamp(),
+                "create_date": datetime.now(),
+                "update_time": current_timestamp(),
+                "update_date": datetime.now()
+            }
+            
+            document = Document.create(**doc_data)
+            
+            # 创建文件和文档的关联关系
+            file2doc_data = {
+                "id": get_uuid(),
+                "file_id": file_id,
+                "document_id": doc_id
+            }
+            File2Document.create(**file2doc_data)
+            
+            # 保存内容到存储系统
+            content_bytes = content.encode('utf-8')
+            content_io = io.BytesIO(content_bytes)
+            STORAGE_IMPL.put(storage_location, content_io)
+            
+            logger.info(f"文档创建成功: {title} -> {doc_id}")
+            return {
+                "id": doc_id,
+                "title": title,
+                "file_id": file_id,
+                "location": storage_location
+            }
+            
+        except Exception as e:
+            logger.error(f"创建文档失败: {e}")
+            return None
     
     @classmethod
     def _trigger_document_parsing(cls, doc_id: str):
