@@ -181,7 +181,7 @@ class NewsCollector:
 news_tasks = {}
 
 
-@manager.route('/news/ping', methods=['GET'])  # noqa: F821
+@manager.route('/ping', methods=['GET'])  # noqa: F821
 @token_required
 def ping(tenant_id):
     """
@@ -229,7 +229,7 @@ def ping(tenant_id):
         return server_error_response(e)
 
 
-@manager.route('/news/crawlers', methods=['GET'])  # noqa: F821
+@manager.route('/crawlers', methods=['GET'])  # noqa: F821
 @token_required
 def get_crawler_types(tenant_id):
     """
@@ -285,7 +285,7 @@ def get_crawler_types(tenant_id):
         return server_error_response(e)
 
 
-@manager.route('/news/sources', methods=['POST'])  # noqa: F821
+@manager.route('/sources', methods=['POST'])  # noqa: F821
 @token_required
 def create_news_source(tenant_id):
     """
@@ -361,7 +361,7 @@ def create_news_source(tenant_id):
         return server_error_response(e)
 
 
-@manager.route('/news/tasks', methods=['POST'])  # noqa: F821
+@manager.route('/tasks', methods=['POST'])  # noqa: F821
 @token_required
 def create_news_task(tenant_id):
     """
@@ -467,7 +467,7 @@ def create_news_task(tenant_id):
         return server_error_response(e)
 
 
-@manager.route('/news/tasks/<task_id>/execute', methods=['POST'])  # noqa: F821
+@manager.route('/tasks/<task_id>/execute', methods=['POST'])  # noqa: F821
 @token_required
 def execute_news_task(tenant_id, task_id):
     """
@@ -562,7 +562,7 @@ def execute_news_task(tenant_id, task_id):
         return server_error_response(e)
 
 
-@manager.route('/news/tasks/<task_id>', methods=['GET'])  # noqa: F821
+@manager.route('/tasks/<task_id>', methods=['GET'])  # noqa: F821
 @token_required
 def get_task_status(tenant_id, task_id):
     """
@@ -630,7 +630,7 @@ def get_task_status(tenant_id, task_id):
         return server_error_response(e)
 
 
-@manager.route('/news/tasks', methods=['GET'])  # noqa: F821
+@manager.route('/tasks', methods=['GET'])  # noqa: F821
 @token_required
 def list_news_tasks(tenant_id):
     """
