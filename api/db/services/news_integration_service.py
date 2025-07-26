@@ -56,14 +56,54 @@ class NewsDocumentIntegrationService:
             "update_date": datetime.now()
         }
         
+        # 关联到知识库
+        from api.db.services.file2document_service import File2DocumentService
+        
         news_folder = File.create(**news_folder_data)
         logger.info(f"创建新闻根文件夹: {news_root_folder_id}")
+        
+        # 创建一个虚拟Document关联文件夹到知识库
+        folder_doc_id = get_uuid()
+        folder_doc_data = {
+            "id": folder_doc_id,
+            "kb_id": kb_id,
+            "parser_id": ParserType.NAIVE.value,
+            "parser_config": {"pages": [[1, 1000000]]},
+            "source_type": "news_collector",
+            "type": FileType.FOLDER.value,
+            "created_by": user_id,
+            "name": "📰 新闻收集",
+            "location": "",
+            "size": 0,
+            "token_num": 0,
+            "chunk_num": 0,
+            "progress": 100,
+            "progress_msg": "文件夹",
+            "run": "2",  # 已完成
+            "status": "1",  # 有效
+            "suffix": "",
+            "meta_fields": {"type": "news_folder"},
+            "create_time": current_timestamp(),
+            "create_date": datetime.now(),
+            "update_time": current_timestamp(),
+            "update_date": datetime.now()
+        }
+        
+        folder_document = Document.create(**folder_doc_data)
+        
+        # 创建文件和文档的关联关系
+        folder_file2doc_data = {
+            "id": get_uuid(),
+            "file_id": news_root_folder_id,
+            "document_id": folder_doc_id
+        }
+        File2Document.create(**folder_file2doc_data)
         
         return news_root_folder_id
     
     @classmethod
     @DB.connection_context()
-    def create_source_folder(cls, source: NewsSource, parent_folder_id: str) -> str:
+    def create_source_folder(cls, source: NewsSource, parent_folder_id: str, kb_id: str) -> str:
         """为每个新闻源创建专用文件夹"""
         
         source_folder_id = get_uuid()
@@ -88,6 +128,42 @@ class NewsDocumentIntegrationService:
         folder = File.create(**folder_data)
         logger.info(f"创建新闻源文件夹: {source.name} -> {source_folder_id}")
         
+        # 创建一个虚拟Document关联文件夹到知识库
+        folder_doc_id = get_uuid()
+        folder_doc_data = {
+            "id": folder_doc_id,
+            "kb_id": kb_id,
+            "parser_id": ParserType.NAIVE.value,
+            "parser_config": {"pages": [[1, 1000000]]},
+            "source_type": "news_source",
+            "type": FileType.FOLDER.value,
+            "created_by": source.user_id,
+            "name": folder_name,
+            "location": f"news_source_{source.id}",
+            "size": 0,
+            "token_num": 0,
+            "chunk_num": 0,
+            "progress": 100,
+            "progress_msg": "文件夹",
+            "run": "2",  # 已完成
+            "status": "1",  # 有效
+            "suffix": "",
+            "meta_fields": {"type": "news_source_folder", "source_id": source.id},
+            "create_time": current_timestamp(),
+            "create_date": datetime.now(),
+            "update_time": current_timestamp(),
+            "update_date": datetime.now()
+        }
+        
+        folder_document = Document.create(**folder_doc_data)
+        
+        # 创建文件和文档的关联关系
+        folder_file2doc_data = {
+            "id": get_uuid(),
+            "file_id": source_folder_id,
+            "document_id": folder_doc_id
+        }
+        File2Document.create(**folder_file2doc_data)
         return source_folder_id
     
     @classmethod
@@ -298,7 +374,7 @@ class NewsDocumentIntegrationService:
             for source in sources:
                 try:
                     # 为每个新闻源创建文件夹
-                    source_folder_id = cls.create_source_folder(source, news_root_folder)
+                    source_folder_id = cls.create_source_folder(source, news_root_folder, task.kb_id)
                     
                     # 抓取新闻
                     source_config = {
