@@ -26,8 +26,8 @@ from api.crawlers.news_crawler_implementations import (
     DemoCrawler
 )
 
-# 创建Blueprint
-manager = Blueprint('news_collector', __name__)
+# 创建Blueprint（确保正确的Blueprint名称和URL前缀）
+manager = Blueprint('news', __name__)
 
 
 # 爬虫工厂类
