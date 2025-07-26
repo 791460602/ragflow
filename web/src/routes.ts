@@ -8,6 +8,7 @@ export enum Routes {
   Agent = '/agent',
   AgentTemplates = '/agent-templates',
   Agents = '/agents',
+  AgentList = '/agent-list',
   Searches = '/next-searches',
   Search = '/next-search',
   Chats = '/next-chats',
@@ -52,6 +53,11 @@ const routes = [
   {
     path: '/chat/share',
     component: '@/pages/chat/share',
+    layout: false,
+  },
+  {
+    path: '/next-chat/share',
+    component: '@/pages/next-chats/share',
     layout: false,
   },
   {
@@ -136,6 +142,10 @@ const routes = [
             path: '/user-setting/api',
             component: '@/pages/user-setting/setting-api',
           },
+          {
+            path: `/user-setting${Routes.Mcp}`,
+            component: `@/pages${Routes.ProfileMcp}`,
+          },
         ],
       },
       {
@@ -145,6 +155,10 @@ const routes = [
       {
         path: '/flow',
         component: '@/pages/flow/list',
+      },
+      {
+        path: Routes.AgentList,
+        component: `@/pages/${Routes.Agents}`,
       },
       {
         path: '/flow/:id',

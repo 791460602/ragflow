@@ -202,8 +202,9 @@ class QWenEmbed(Base):
         self.model_name = model_name
 
     def encode(self, texts: list):
-        import dashscope
         import time
+
+        import dashscope
 
         batch_size = 4
         res = []
@@ -282,8 +283,9 @@ class OllamaEmbed(Base):
     _special_tokens = ["<|endoftext|>"]
 
     def __init__(self, key, model_name, **kwargs):
-        self.client = Client(host=kwargs["base_url"]) if not key or key == "x" else Client(host=kwargs["base_url"], headers={"Authorization": f"Bear {key}"})
+        self.client = Client(host=kwargs["base_url"]) if not key or key == "x" else Client(host=kwargs["base_url"], headers={"Authorization": f"Bearer {key}"})
         self.model_name = model_name
+        self.keep_alive = kwargs.get("ollama_keep_alive", int(os.environ.get("OLLAMA_KEEP_ALIVE", -1)))
 
     def encode(self, texts: list):
         arr = []
@@ -292,7 +294,7 @@ class OllamaEmbed(Base):
             # remove special tokens if they exist
             for token in OllamaEmbed._special_tokens:
                 txt = txt.replace(token, "")
-            res = self.client.embeddings(prompt=txt, model=self.model_name, options={"use_mmap": True}, keep_alive=-1)
+            res = self.client.embeddings(prompt=txt, model=self.model_name, options={"use_mmap": True}, keep_alive=self.keep_alive)
             try:
                 arr.append(res["embedding"])
             except Exception as _e:
@@ -304,7 +306,7 @@ class OllamaEmbed(Base):
         # remove special tokens if they exist
         for token in OllamaEmbed._special_tokens:
             text = text.replace(token, "")
-        res = self.client.embeddings(prompt=text, model=self.model_name, options={"use_mmap": True}, keep_alive=-1)
+        res = self.client.embeddings(prompt=text, model=self.model_name, options={"use_mmap": True}, keep_alive=self.keep_alive)
         try:
             return np.array(res["embedding"]), 128
         except Exception as _e:
@@ -899,4 +901,13 @@ class GiteeEmbed(SILICONFLOWEmbed):
     def __init__(self, key, model_name, base_url="https://ai.gitee.com/v1/embeddings"):
         if not base_url:
             base_url = "https://ai.gitee.com/v1/embeddings"
+        super().__init__(key, model_name, base_url)
+
+
+class DeepInfraEmbed(OpenAIEmbed):
+    _FACTORY_NAME = "DeepInfra"
+
+    def __init__(self, key, model_name, base_url="https://api.deepinfra.com/v1/openai"):
+        if not base_url:
+            base_url = "https://api.deepinfra.com/v1/openai"
         super().__init__(key, model_name, base_url)
