@@ -78,8 +78,7 @@ class NewsCollector:
                 task_id=get_uuid(),
                 sources=news_sources,
                 output_directory=output_dir,
-                max_articles_per_source=max_articles,
-                crawler_config={}
+                max_articles_per_source=max_articles
             )
             
             # 执行爬取
