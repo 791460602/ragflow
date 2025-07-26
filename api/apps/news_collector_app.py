@@ -205,8 +205,8 @@ def get_task(task_id):
         if not tenant_id:
             return get_data_error_result(message="无法获取租户信息")
         
-        task = NewsTaskService.get_by_id(task_id)
-        if not task or task.user_id != user_id or task.tenant_id != tenant_id:
+        success, task = NewsTaskService.get_by_id(task_id)
+        if not success or not task or task.user_id != user_id or task.tenant_id != tenant_id:
             return get_data_error_result(message="任务不存在")
         
         return get_json_result(data=task.to_dict())
@@ -225,22 +225,22 @@ def execute_task(task_id):
         if not tenant_id:
             return get_data_error_result(message="无法获取租户信息")
         
-        task = NewsTaskService.get_by_id(task_id)
-        if not task or task.user_id != user_id or task.tenant_id != tenant_id:
+        success, task = NewsTaskService.get_by_id(task_id)
+        if not success or not task or task.user_id != user_id or task.tenant_id != tenant_id:
             return get_data_error_result(message="任务不存在")
         
         if task.status == "running":
             return get_data_error_result(message="任务正在运行中")
-        
-        # 更新任务状态为运行中
-        NewsTaskService.update_task_status(task_id, "running")
+
         
         # 使用集成服务执行任务
         try:
             results = NewsDocumentIntegrationService.execute_news_task_with_integration(task_id)
             
             # 重新获取更新后的任务
-            updated_task = NewsTaskService.get_by_id(task_id)
+            success, updated_task = NewsTaskService.get_by_id(task_id)
+            if not success:
+                return get_data_error_result(message="获取任务失败")
             return get_json_result(data={
                 "message": "任务执行成功", 
                 "task": updated_task.to_dict(),
@@ -267,8 +267,8 @@ def get_task_documents(task_id):
         if not tenant_id:
             return get_data_error_result(message="无法获取租户信息")
         
-        task = NewsTaskService.get_by_id(task_id)
-        if not task or task.user_id != user_id or task.tenant_id != tenant_id:
+        success, task = NewsTaskService.get_by_id(task_id)
+        if not success or not task or task.user_id != user_id or task.tenant_id != tenant_id:
             return get_data_error_result(message="任务不存在")
         
         # 获取任务产生的文档
@@ -294,8 +294,8 @@ def delete_task(task_id):
         if not tenant_id:
             return get_data_error_result(message="无法获取租户信息")
         
-        task = NewsTaskService.get_by_id(task_id)
-        if not task or task.user_id != user_id or task.tenant_id != tenant_id:
+        success, task = NewsTaskService.get_by_id(task_id)
+        if not success or not task or task.user_id != user_id or task.tenant_id != tenant_id:
             return get_data_error_result(message="任务不存在")
         
         success = NewsTaskService.delete(task_id)
@@ -356,8 +356,8 @@ def get_news_content(content_id):
         if not tenant_id:
             return get_data_error_result(message="无法获取租户信息")
         
-        content = NewsContentService.get_by_id(content_id)
-        if not content or content.user_id != user_id or content.tenant_id != tenant_id:
+        success, content = NewsContentService.get_by_id(content_id)
+        if not success or not content or content.user_id != user_id or content.tenant_id != tenant_id:
             return get_data_error_result(message="新闻不存在")
         
         return get_json_result(data=content.to_dict())
@@ -376,11 +376,11 @@ def delete_news_content(content_id):
         if not tenant_id:
             return get_data_error_result(message="无法获取租户信息")
         
-        content = NewsContentService.get_by_id(content_id)
-        if not content or content.user_id != user_id or content.tenant_id != tenant_id:
+        success, content = NewsContentService.get_by_id(content_id)
+        if not success or not content or content.user_id != user_id or content.tenant_id != tenant_id:
             return get_data_error_result(message="新闻不存在")
         
-        success = NewsContentService.delete(content_id)
+        success = NewsContentService.delete_by_id(content_id)
         if not success:
             return get_data_error_result(message="删除失败")
         

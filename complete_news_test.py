@@ -23,11 +23,11 @@ SERVER_URL = "http://localhost:9222"  # 根据您的实际端口修改
 API_BASE = f"{SERVER_URL}/v1/news_collector"
 
 # 认证信息 - 请填入您的真实认证信息
-AUTH_TOKEN = "IjMwNTRjMjY0NjkzMDExZjA5ODU1M2I3YzM2NDc4NDA0Ig.aIM-PQ.HcZwkiqSWhvtHc0t1MEu7cRQDfM"
+AUTH_TOKEN = "ImQ1MmVlOTM4NjljOTExZjBiZDc1ZjUwMjA2N2YzOTZjIg.aIRAAw.FxtamUfpaPCzyiz9uIv5r1r30Ng"
 SESSION_COOKIE = "qwvk05mY7F4MiSwJHQ6ZFSA-cy1OqAGJ2OmwNsrIhT0"
 
 # 知识库ID - 请在RAGFlow前端创建知识库后填入ID
-KNOWLEDGE_BASE_ID = "7e95b1ba694111f098563b7c36478404"  # 请填入真实的知识库ID
+KNOWLEDGE_BASE_ID = "4ad3c16669c211f0818e254379a07586"  # 请填入真实的知识库ID
 
 # 测试用新闻源配置
 TEST_NEWS_SOURCES = [
@@ -178,13 +178,13 @@ def run_list_news_sources():
     
     response = make_request('GET', '/sources')
     result = check_response(response, "获取新闻源列表")
-    
+    sources_ids = [source.get('id') for source in result.get('data',[])]
     if result and result.get('code') == 0:
         sources = result.get('data', [])
         print(f"📋 总计 {len(sources)} 个新闻源:")
         for source in sources:
             print(f"  - {source.get('name')}: {source.get('url')} (状态: {source.get('status')})")
-        return sources
+        return sources_ids
     return []
 
 def run_create_news_task(source_ids):
@@ -369,18 +369,18 @@ def main():
             return False
         
         # 2. 创建新闻源
-        created_sources = run_create_news_sources()
-        if not created_sources:
-            print("❌ 没有成功创建任何新闻源")
-            return False
-        
-        source_ids = [source['id'] for source in created_sources]
+        # created_sources = run_create_news_sources()
+        # if not created_sources:
+        #     print("❌ 没有成功创建任何新闻源")
+        #     return False
+        #
+        # source_ids = [source['id'] for source in created_sources]
         
         # 3. 列出新闻源
         all_sources = run_list_news_sources()
         
         # 4. 创建抓取任务
-        task = run_create_news_task(source_ids)
+        task = run_create_news_task(all_sources)
         if not task:
             print("❌ 任务创建失败")
             return False
