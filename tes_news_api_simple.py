@@ -14,7 +14,8 @@ SERVER_URL = "http://localhost:9222"
 API_BASE = f"{SERVER_URL}/api/v1"
 
 # 请在这里填入您的认证信息
-AUTH_TOKEN = "ImQ1MmVlOTM4NjljOTExZjBiZDc1ZjUwMjA2N2YzOTZjIg.aIRAAw.FxtamUfpaPCzyiz9uIv5r1r30Ng"
+# AUTH_TOKEN = "IjhjZDUyMzdhNjlmOTExZjA4ZTE5NzVhZmI0YjcyZWNlIg.aISQEQ.TDEq8amHn0SnQnU8TOtjb80Q4Bk"
+AUTH_TOKEN = "Bearer ragflow-M3NDJjZmEyNjYwZDExZjBhMTAwYjlkOD"
 KNOWLEDGE_BASE_ID = "4ad3c16669c211f0818e254379a07586"
 
 def get_headers():
@@ -24,7 +25,7 @@ def get_headers():
         "Content-Type": "application/json"
     }
 
-def test_ping():
+def tes_ping():
     """测试服务状态"""
     print("🔍 测试服务状态...")
     try:
@@ -41,7 +42,7 @@ def test_ping():
         print(f"❌ 连接失败: {e}")
         return False
 
-def test_get_crawlers():
+def tes_get_crawlers():
     """测试获取爬虫类型"""
     print("\n🔍 测试获取爬虫类型...")
     try:
@@ -58,7 +59,7 @@ def test_get_crawlers():
         print(f"❌ 请求异常: {e}")
         return False
 
-def test_create_demo_task():
+def tes_create_demo_task():
     """测试创建演示任务"""
     print("\n🔍 测试创建演示任务...")
     
@@ -100,7 +101,7 @@ def test_create_demo_task():
         print(f"❌ 请求异常: {e}")
         return None
 
-def test_execute_task(task_id):
+def tes_execute_task(task_id):
     """测试执行任务"""
     print(f"\n🔍 测试执行任务: {task_id}")
     
@@ -123,7 +124,7 @@ def test_execute_task(task_id):
         print(f"❌ 请求异常: {e}")
         return False
 
-def test_get_task_status(task_id):
+def tes_get_task_status(task_id):
     """测试获取任务状态"""
     print(f"\n🔍 测试获取任务状态: {task_id}")
     
@@ -163,24 +164,24 @@ def main():
     total_tests = 5
     
     # 1. 测试服务状态
-    if test_ping():
+    if tes_ping():
         success_count += 1
     
     # 2. 测试获取爬虫类型
-    if test_get_crawlers():
+    if tes_get_crawlers():
         success_count += 1
     
     # 3. 测试创建任务
-    task_id = test_create_demo_task()
+    task_id = tes_create_demo_task()
     if task_id:
         success_count += 1
         
         # 4. 测试执行任务
-        if test_execute_task(task_id):
+        if tes_execute_task(task_id):
             success_count += 1
         
         # 5. 测试获取任务状态
-        if test_get_task_status(task_id):
+        if tes_get_task_status(task_id):
             success_count += 1
     
     print("\n" + "=" * 50)
