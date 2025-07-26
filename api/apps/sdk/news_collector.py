@@ -4,7 +4,7 @@
 使用现有的@token_required认证，支持多种外部爬虫工具
 """
 
-from flask import request, Blueprint
+from flask import request
 from api.utils.api_utils import get_json_result, server_error_response, token_required
 from api.db.services.knowledgebase_service import KnowledgebaseService
 from api.db.services.file_service import FileService
@@ -25,9 +25,6 @@ from api.crawlers.news_crawler_implementations import (
     Newspaper3kCrawler, 
     DemoCrawler
 )
-
-# 创建Blueprint（确保正确的Blueprint名称和URL前缀）
-manager = Blueprint('news', __name__)
 
 
 # 爬虫工厂类
