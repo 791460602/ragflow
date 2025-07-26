@@ -11,7 +11,7 @@ from datetime import datetime
 
 # 配置信息
 SERVER_URL = "http://localhost:9222"
-API_BASE = f"{SERVER_URL}/api/v1/sdk/news"
+API_BASE = f"{SERVER_URL}/api/v1"
 
 # 请在这里填入您的认证信息
 AUTH_TOKEN = "ImQ1MmVlOTM4NjljOTExZjBiZDc1ZjUwMjA2N2YzOTZjIg.aIRAAw.FxtamUfpaPCzyiz9uIv5r1r30Ng"
