@@ -103,6 +103,7 @@ MAX_CONCURRENT_CHUNK_BUILDERS = int(os.environ.get('MAX_CONCURRENT_CHUNK_BUILDER
 MAX_CONCURRENT_MINIO = int(os.environ.get('MAX_CONCURRENT_MINIO', '10'))
 task_limiter = trio.Semaphore(MAX_CONCURRENT_TASKS)
 chunk_limiter = trio.CapacityLimiter(MAX_CONCURRENT_CHUNK_BUILDERS)
+embed_limiter = trio.CapacityLimiter(MAX_CONCURRENT_CHUNK_BUILDERS)
 minio_limiter = trio.CapacityLimiter(MAX_CONCURRENT_MINIO)
 kg_limiter = trio.CapacityLimiter(2)
 WORKER_HEARTBEAT_TIMEOUT = int(os.environ.get('WORKER_HEARTBEAT_TIMEOUT', '120'))
@@ -184,6 +185,7 @@ def set_progress(task_id, from_page=0, to_page=-1, prog=None, msg="Processing...
     except Exception:
         logging.exception(f"set_progress({task_id}), progress: {prog}, progress_msg: {msg}, got exception")
 
+
 async def collect():
     global CONSUMER_NAME, DONE_TASKS, FAILED_TASKS
     global UNACKED_ITERATOR
@@ -229,6 +231,7 @@ async def get_storage_binary(bucket, name):
     return await trio.to_thread.run_sync(lambda: STORAGE_IMPL.get(bucket, name))
 
 
+@timeout(60*40, 1)
 async def build_chunks(task, progress_callback):
     if task["size"] > DOC_MAXIMUM_SIZE:
         set_progress(task["id"], prog=-1, msg="File size exceeds( <= %dMb )" %
@@ -240,7 +243,7 @@ async def build_chunks(task, progress_callback):
         st = timer()
         bucket, name = File2DocumentService.get_storage_address(doc_id=task["doc_id"])
         binary = await get_storage_binary(bucket, name)
-        logging.info("From minio({}) {}/{}".format(timer() - st, task["location"], task["name"]))
+        logging.info("From minio({}) {}/{}, binary size: {}".format(timer() - st, task["location"], task["name"], len(binary) if binary else 'None'))
     except TimeoutError:
         progress_callback(-1, "Internal server error: Fetch file from minio timeout. Could you try it again.")
         logging.exception(
@@ -256,7 +259,11 @@ async def build_chunks(task, progress_callback):
 
     try:
         async with chunk_limiter:
-            cks = await trio.to_thread.run_sync(lambda: chunker.chunk(task["name"], binary=binary, from_page=task["from_page"],
+            # Use the actual storage location name instead of task["name"] to avoid file not found errors
+            # Pass the actual filename from storage, but the binary data should be used for content
+            actual_filename = name if name else task["name"]
+            logging.info("Chunking with filename: '{}', binary size: {}".format(actual_filename, len(binary) if binary else 'None'))
+            cks = await trio.to_thread.run_sync(lambda: chunker.chunk(actual_filename, binary=binary, from_page=task["from_page"],
                                 to_page=task["to_page"], lang=task["language"], callback=progress_callback,
                                 kb_id=task["kb_id"], parser_config=task["parser_config"], tenant_id=task["tenant_id"]))
         logging.info("Chunking({}) {}/{} done".format(timer() - st, task["location"], task["name"]))
@@ -440,7 +447,8 @@ async def embedding(docs, mdl, parser_config=None, callback=None):
 
     cnts_ = np.array([])
     for i in range(0, len(cnts), EMBEDDING_BATCH_SIZE):
-        vts, c = await trio.to_thread.run_sync(lambda: mdl.encode([truncate(c, mdl.max_length-10) for c in cnts[i: i + EMBEDDING_BATCH_SIZE]]))
+        async with embed_limiter:
+            vts, c = await trio.to_thread.run_sync(lambda: mdl.encode([truncate(c, mdl.max_length-10) for c in cnts[i: i + EMBEDDING_BATCH_SIZE]]))
         if len(cnts_) == 0:
             cnts_ = vts
         else:
@@ -541,6 +549,7 @@ async def do_handle_task(task):
     try:
         # bind embedding model
         embedding_model = LLMBundle(task_tenant_id, LLMType.EMBEDDING, llm_name=task_embedding_id, lang=task_language)
+        await is_strong_enough(None, embedding_model)
         vts, _ = embedding_model.encode(["ok"])
         vector_size = len(vts[0])
     except Exception as e:
@@ -555,6 +564,7 @@ async def do_handle_task(task):
     if task.get("task_type", "") == "raptor":
         # bind LLM for raptor
         chat_model = LLMBundle(task_tenant_id, LLMType.CHAT, llm_name=task_llm_id, lang=task_language)
+        await is_strong_enough(chat_model, None)
         # run RAPTOR
         async with kg_limiter:
             chunks, token_count = await run_raptor(task, chat_model, embedding_model, vector_size, progress_callback)
@@ -566,6 +576,7 @@ async def do_handle_task(task):
         graphrag_conf = task["kb_parser_config"].get("graphrag", {})
         start_ts = timer()
         chat_model = LLMBundle(task_tenant_id, LLMType.CHAT, llm_name=task_llm_id, lang=task_language)
+        await is_strong_enough(chat_model, None)
         with_resolution = graphrag_conf.get("resolution", False)
         with_community = graphrag_conf.get("community", False)
         async with kg_limiter:

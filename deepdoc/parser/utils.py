@@ -23,10 +23,19 @@ def get_text(fnm: str, binary=None) -> str:
         encoding = find_codec(binary)
         txt = binary.decode(encoding, errors="ignore")
     else:
-        with open(fnm, "r") as f:
-            while True:
-                line = f.readline()
-                if not line:
-                    break
-                txt += line
+        # Only try to open file if it actually exists and binary is not available
+        try:
+            import os
+            if os.path.exists(fnm):
+                with open(fnm, "r") as f:
+                    while True:
+                        line = f.readline()
+                        if not line:
+                            break
+                        txt += line
+            else:
+                # If file doesn't exist and no binary provided, raise a more informative error
+                raise FileNotFoundError(f"File '{fnm}' not found and no binary data provided")
+        except Exception as e:
+            raise FileNotFoundError(f"Cannot read file '{fnm}': {e}")
     return txt

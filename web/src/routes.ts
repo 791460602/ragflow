@@ -35,6 +35,7 @@ export enum Routes {
   Result = '/result',
   ResultView = `${Chunk}${Result}`,
   NewsCollector = '/news_collector',
+  KnowledgeGraph = '/knowledge-graph',
 }
 
 const routes = [
@@ -273,6 +274,10 @@ const routes = [
       {
         path: `${Routes.DatasetBase}${Routes.DatasetTesting}/:id`,
         component: `@/pages${Routes.DatasetBase}${Routes.DatasetTesting}`,
+      },
+      {
+        path: `${Routes.DatasetBase}${Routes.KnowledgeGraph}/:id`,
+        component: `@/pages${Routes.DatasetBase}${Routes.KnowledgeGraph}`,
       },
     ],
   },

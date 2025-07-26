@@ -1,4 +1,4 @@
-import pathlib
+from pathlib import Path
 import re
 
 import flask
@@ -6,14 +6,18 @@ from flask import request
 
 from api.db.services.document_service import DocumentService
 from api.db.services.file2document_service import File2DocumentService
-from api.utils.api_utils import server_error_response, token_required
-from api.utils import get_uuid
-from api.db import FileType
 from api.db.services import duplicate_name
 from api.db.services.file_service import FileService
 from api.utils.api_utils import get_json_result
 from api.utils.file_utils import filename_type
 from rag.utils.storage_factory import STORAGE_IMPL
+
+from api.db.services.knowledgebase_service import KnowledgebaseService
+from api.utils.api_utils import server_error_response, get_data_error_result, token_required
+from api.utils import get_uuid
+from api.db import FileType
+from api import settings
+
 
 @manager.route('/file/upload', methods=['POST']) # noqa: F821
 @token_required
@@ -95,12 +99,12 @@ def upload(tenant_id):
                 e, file = FileService.get_by_id(file_id_list[len_id_list - 1])
                 if not e:
                     return get_json_result(data=False, message="Folder not found!", code=404)
-                last_folder = FileService.create_folder(file, file_id_list[len_id_list - 1], file_obj_names, len_id_list)
+                last_folder = FileService.create_folder_with_tenant(file, file_id_list[len_id_list - 1], file_obj_names, len_id_list, tenant_id)
             else:
                 e, file = FileService.get_by_id(file_id_list[len_id_list - 2])
                 if not e:
                     return get_json_result(data=False, message="Folder not found!", code=404)
-                last_folder = FileService.create_folder(file, file_id_list[len_id_list - 2], file_obj_names, len_id_list)
+                last_folder = FileService.create_folder_with_tenant(file, file_id_list[len_id_list - 2], file_obj_names, len_id_list, tenant_id)
 
             filetype = filename_type(file_obj_names[file_len - 1])
             location = file_obj_names[file_len - 1]
@@ -123,6 +127,138 @@ def upload(tenant_id):
             STORAGE_IMPL.put(last_folder.id, location, blob)
             file_res.append(file.to_json())
         return get_json_result(data=file_res)
+    except Exception as e:
+        return server_error_response(e)
+
+
+@manager.route('/file2document/convert', methods=['POST'])  # noqa: F821
+@token_required
+def convert(tenant_id):
+    """
+    Convert files to documents and link them to datasets.
+    ---
+    tags:
+      - File Management
+    security:
+      - ApiKeyAuth: []
+    parameters:
+      - in: body
+        name: body
+        description: File to document conversion parameters
+        required: true
+        schema:
+          type: object
+          properties:
+            file_ids:
+              type: array
+              items:
+                type: string
+              description: List of file IDs to convert
+            kb_ids:
+              type: array
+              items:
+                type: string
+              description: List of knowledge base IDs to link documents to
+    responses:
+      200:
+        description: Successfully converted files to documents
+        schema:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  file_id:
+                    type: string
+                  document_id:
+                    type: string
+    """
+    req = request.json
+    
+    if not req or 'file_ids' not in req or 'kb_ids' not in req:
+        return get_json_result(
+            data=False, 
+            message='Missing required parameters: file_ids, kb_ids', 
+            code=settings.RetCode.ARGUMENT_ERROR
+        )
+    
+    kb_ids = req["kb_ids"]
+    file_ids = req["file_ids"]
+    file2documents = []
+
+    try:
+        files = FileService.get_by_ids(file_ids)
+        files_set = dict({file.id: file for file in files})
+        
+        for file_id in file_ids:
+            file = files_set.get(file_id)
+            if not file:
+                return get_data_error_result(message="File not found!")
+                
+            # Check if file belongs to tenant
+            if file.tenant_id != tenant_id:
+                return get_data_error_result(message="No permission to access this file!")
+                
+            file_ids_list = [file_id]
+            if file.type == FileType.FOLDER.value:
+                file_ids_list = FileService.get_all_innermost_file_ids(file_id, [])
+                
+            for id in file_ids_list:
+                informs = File2DocumentService.get_by_file_id(id)
+                # delete existing mappings
+                for inform in informs:
+                    doc_id = inform.document_id
+                    e, doc = DocumentService.get_by_id(doc_id)
+                    if not e:
+                        return get_data_error_result(message="Document not found!")
+                    doc_tenant_id = DocumentService.get_tenant_id(doc_id)
+                    if not doc_tenant_id:
+                        return get_data_error_result(message="Tenant not found!")
+                    if not DocumentService.remove_document(doc, doc_tenant_id):
+                        return get_data_error_result(
+                            message="Database error (Document removal)!")
+                File2DocumentService.delete_by_file_id(id)
+
+                # insert new mappings
+                for kb_id in kb_ids:
+                    e, kb = KnowledgebaseService.get_by_id(kb_id)
+                    if not e:
+                        return get_data_error_result(
+                            message="Can't find this knowledgebase!")
+                    
+                    # Check if kb belongs to tenant
+                    if kb.tenant_id != tenant_id:
+                        return get_data_error_result(message="No permission to access this knowledge base!")
+                        
+                    e, file = FileService.get_by_id(id)
+                    if not e:
+                        return get_data_error_result(
+                            message="Can't find this file!")
+
+                    doc = DocumentService.insert({
+                        "id": get_uuid(),
+                        "kb_id": kb.id,
+                        "parser_id": FileService.get_parser(file.type, file.name, kb.parser_id),
+                        "parser_config": kb.parser_config,
+                        "created_by": tenant_id,
+                        "type": file.type,
+                        "name": file.name,
+                        "suffix": Path(file.name).suffix.lstrip("."),
+                        "location": file.location,
+                        "size": file.size
+                    })
+                    file2document = File2DocumentService.insert({
+                        "id": get_uuid(),
+                        "file_id": id,
+                        "document_id": doc.id,
+                    })
+
+                    file2documents.append(file2document.to_json())
+        return get_json_result(data=file2documents)
     except Exception as e:
         return server_error_response(e)
 
