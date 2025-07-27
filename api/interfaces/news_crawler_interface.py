@@ -134,21 +134,52 @@ class INewsCrawler(ABC):
         import json
         from datetime import datetime
         
+        # 写入调试日志文件
+        debug_log_path = f"/tmp/news_crawler_debug_{datetime.now().strftime('%H%M%S')}.log"
+        
+        def log_debug(message):
+            try:
+                with open(debug_log_path, 'a', encoding='utf-8') as f:
+                    f.write(f"{datetime.now().isoformat()} - {message}\n")
+            except:
+                pass
+        
+        log_debug(f"开始保存文章: {len(articles)} 篇到 {output_dir}")
+        
         try:
             # 创建新闻源目录
             source_dir = os.path.join(output_dir, "sources", source_name)
+            log_debug(f"创建目录: {source_dir}")
             os.makedirs(source_dir, exist_ok=True)
+            
+            # 检查目录权限
+            if not os.access(source_dir, os.W_OK):
+                log_debug(f"❌ 没有写入权限: {source_dir}")
+                return False
+            
+            log_debug(f"目录创建成功，开始保存文章")
             
             # 保存每篇文章
             for i, article in enumerate(articles):
                 filename = self._sanitize_filename(f"{article.title}.md")
                 filepath = os.path.join(source_dir, filename)
+                log_debug(f"保存文章 {i+1}: {filepath}")
                 
                 # 生成Markdown内容
-                content = self._format_article_markdown(article)
+                try:
+                    content = self._format_article_markdown(article)
+                    log_debug(f"内容生成成功，长度: {len(content)}")
+                except Exception as format_error:
+                    log_debug(f"❌ 内容格式化失败: {format_error}")
+                    return False
                 
-                with open(filepath, 'w', encoding='utf-8') as f:
-                    f.write(content)
+                try:
+                    with open(filepath, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                    log_debug(f"✅ 文章保存成功: {filename}")
+                except Exception as file_error:
+                    log_debug(f"❌ 文件写入失败: {filename} - {file_error}")
+                    return False
             
             # 保存新闻源信息
             source_info = {
@@ -159,13 +190,22 @@ class INewsCrawler(ABC):
                 "failed_count": 0
             }
             
-            with open(os.path.join(source_dir, "source_info.json"), 'w', encoding='utf-8') as f:
-                json.dump(source_info, f, ensure_ascii=False, indent=2)
+            info_path = os.path.join(source_dir, "source_info.json")
+            try:
+                with open(info_path, 'w', encoding='utf-8') as f:
+                    json.dump(source_info, f, ensure_ascii=False, indent=2)
+                log_debug(f"✅ 源信息保存成功: {info_path}")
+            except Exception as info_error:
+                log_debug(f"⚠️  源信息保存失败: {info_error}")
+                # 这个不是致命错误，继续执行
             
+            log_debug(f"✅ 所有文章保存完成: {len(articles)} 篇")
             return True
             
         except Exception as e:
-            print(f"保存文章失败: {e}")
+            log_debug(f"❌ 保存文章失败: {e}")
+            import traceback
+            log_debug(f"堆栈跟踪: {traceback.format_exc()}")
             return False
     
     def _sanitize_filename(self, filename: str) -> str:
@@ -176,6 +216,9 @@ class INewsCrawler(ABC):
     
     def _format_article_markdown(self, article: NewsArticle) -> str:
         """格式化文章为Markdown"""
+        import json
+        from datetime import datetime
+        
         frontmatter = f"""---
 title: "{article.title}"
 url: "{article.url}"

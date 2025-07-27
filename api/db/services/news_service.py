@@ -24,7 +24,7 @@ from api.db.services.common_service import CommonService
 from api.db.services.document_service import DocumentService
 from api.db.services.knowledgebase_service import KnowledgebaseService
 from api.utils import get_uuid
-from api.db import DB
+from api.db.db_models import DB
 
 
 class NewsSourceService(CommonService):
@@ -33,7 +33,7 @@ class NewsSourceService(CommonService):
     @classmethod
     @DB.connection_context()
     def get_by_tenant_id(cls, tenant_id: str, page: int = 1, page_size: int = 20, 
-                        name: str = None, status: str = None):
+                        name: Optional[str] = None, status: Optional[str] = None):
         """根据租户ID获取新闻源列表"""
         query = cls.model.select().where(cls.model.tenant_id == tenant_id)
         
@@ -52,9 +52,13 @@ class NewsSourceService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def create_source(cls, tenant_id: str, user_id: str, **kwargs):
+    def create_source(cls, tenant_id: str, user_id: Optional[str] = None, **kwargs):
         """创建新闻源"""
         source_id = kwargs.get('id', get_uuid())
+        
+        # 如果没有提供user_id，使用tenant_id作为默认值
+        if user_id is None:
+            user_id = tenant_id
         
         source_data = {
             'id': source_id,
@@ -68,14 +72,13 @@ class NewsSourceService(CommonService):
         }
         
         source = cls.model.create(**source_data)
-        cls.model.get_by_id(source.id)
         return cls.to_dict(source)
 
     @classmethod
     @DB.connection_context()
     def update_source(cls, source_id: str, tenant_id: str, **kwargs):
         """更新新闻源"""
-        source = cls.get_by_id(source_id)
+        source = cls.model.select().where(cls.model.id == source_id).first()
         if not source or source.tenant_id != tenant_id:
             raise ValueError("News source not found")
             
@@ -89,7 +92,7 @@ class NewsSourceService(CommonService):
                 cls.model.id == source_id
             ).execute()
             
-        return cls.get_by_id(source_id)
+        return cls.to_dict(cls.model.select().where(cls.model.id == source_id).first())
 
     @classmethod
     @DB.connection_context()
@@ -112,7 +115,18 @@ class NewsSourceService(CommonService):
         if not obj:
             return None
             
-        result = super().to_dict(obj)
+        # 直接从模型对象创建字典
+        result = {}
+        for field_name in obj._meta.fields.keys():
+            field_value = getattr(obj, field_name, None)
+            result[field_name] = field_value
+        
+        # 添加时间戳字段
+        if hasattr(obj, 'create_time') and obj.create_time:
+            result['create_time'] = obj.create_time.isoformat() if hasattr(obj.create_time, 'isoformat') else str(obj.create_time)
+        if hasattr(obj, 'update_time') and obj.update_time:
+            result['update_time'] = obj.update_time.isoformat() if hasattr(obj.update_time, 'isoformat') else str(obj.update_time)
+            
         # 确保JSON字段正确序列化
         if hasattr(obj, 'fetch_config') and obj.fetch_config:
             result['fetch_config'] = obj.fetch_config
@@ -128,7 +142,7 @@ class NewsTaskService(CommonService):
     @classmethod
     @DB.connection_context()
     def get_by_tenant_id(cls, tenant_id: str, page: int = 1, page_size: int = 20,
-                        task_name: str = None, status: str = None):
+                        task_name: Optional[str] = None, status: Optional[str] = None):
         """根据租户ID获取任务列表"""
         query = cls.model.select().where(cls.model.tenant_id == tenant_id)
         
@@ -147,14 +161,20 @@ class NewsTaskService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def create_task(cls, tenant_id: str, user_id: str, **kwargs):
+    def create_task(cls, tenant_id: str, user_id: Optional[str] = None, **kwargs):
         """创建新闻抓取任务"""
         # 验证知识库是否存在
         kb_id = kwargs.get('kb_id')
-        if not KnowledgebaseService.get_by_id(kb_id):
-            raise ValueError("Knowledge base not found")
+        if kb_id:
+            success, kb = KnowledgebaseService.get_by_id(kb_id)
+            if not success or not kb:
+                raise ValueError("Knowledge base not found")
             
         task_id = kwargs.get('id', get_uuid())
+        
+        # 如果没有提供user_id，使用tenant_id作为默认值
+        if user_id is None:
+            user_id = tenant_id
         
         task_data = {
             'id': task_id,
@@ -180,7 +200,7 @@ class NewsTaskService(CommonService):
     @DB.connection_context()
     def update_task(cls, task_id: str, tenant_id: str, **kwargs):
         """更新任务"""
-        task = cls.get_by_id(task_id)
+        task = cls.model.select().where(cls.model.id == task_id).first()
         if not task or task.tenant_id != tenant_id:
             raise ValueError("Task not found")
             
@@ -195,7 +215,7 @@ class NewsTaskService(CommonService):
                 cls.model.id == task_id
             ).execute()
             
-        return cls.get_by_id(task_id)
+        return cls.to_dict(cls.model.select().where(cls.model.id == task_id).first())
 
     @classmethod
     @DB.connection_context()
@@ -230,7 +250,17 @@ class NewsTaskService(CommonService):
         if not obj:
             return None
             
-        result = super().to_dict(obj)
+        # 直接从模型对象创建字典
+        result = {}
+        for field_name in obj._meta.fields.keys():
+            field_value = getattr(obj, field_name, None)
+            result[field_name] = field_value
+        
+        # 添加时间戳字段
+        if hasattr(obj, 'create_time') and obj.create_time:
+            result['create_time'] = obj.create_time.isoformat() if hasattr(obj.create_time, 'isoformat') else str(obj.create_time)
+        if hasattr(obj, 'update_time') and obj.update_time:
+            result['update_time'] = obj.update_time.isoformat() if hasattr(obj.update_time, 'isoformat') else str(obj.update_time)
         
         # 确保JSON字段正确序列化
         if hasattr(obj, 'source_ids') and obj.source_ids:
@@ -285,9 +315,13 @@ class NewsContentService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def create_content(cls, tenant_id: str, user_id: str, **kwargs):
+    def create_content(cls, tenant_id: str, user_id: Optional[str] = None, **kwargs):
         """创建新闻内容"""
         content_id = kwargs.get('id', get_uuid())
+        
+        # 如果没有提供user_id，使用tenant_id作为默认值
+        if user_id is None:
+            user_id = tenant_id
         
         content_data = {
             'id': content_id,
@@ -354,7 +388,17 @@ class NewsContentService(CommonService):
         if not obj:
             return None
             
-        result = super().to_dict(obj)
+        # 直接从模型对象创建字典
+        result = {}
+        for field_name in obj._meta.fields.keys():
+            field_value = getattr(obj, field_name, None)
+            result[field_name] = field_value
+        
+        # 添加时间戳字段
+        if hasattr(obj, 'create_time') and obj.create_time:
+            result['create_time'] = obj.create_time.isoformat() if hasattr(obj.create_time, 'isoformat') else str(obj.create_time)
+        if hasattr(obj, 'update_time') and obj.update_time:
+            result['update_time'] = obj.update_time.isoformat() if hasattr(obj.update_time, 'isoformat') else str(obj.update_time)
         
         # 确保JSON字段正确序列化
         if hasattr(obj, 'tags') and obj.tags:

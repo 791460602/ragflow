@@ -485,7 +485,7 @@ def init_database_tables(alter_fields=[]):
     if create_failed_list:
         logging.error(f"create tables failed: {create_failed_list}")
         raise Exception(f"create tables failed: {create_failed_list}")
-    migrate_db()
+
 
 
 def fill_db_model_object(model_object, human_model_dict):
@@ -914,7 +914,7 @@ class NewsSource(DataBaseModel):
     url = TextField(null=False, help_text="新闻源URL")
     remark = TextField(null=True, help_text="备注信息")
     status = CharField(max_length=16, null=False, default="active", help_text="状态: active|inactive", index=True)
-    user_id = CharField(max_length=32, null=False, help_text="创建用户ID", index=True)
+    user_id = CharField(max_length=32, null=True, help_text="创建用户ID", index=True)
     tenant_id = CharField(max_length=32, null=False, help_text="租户ID", index=True)
     
     # 抓取配置
@@ -941,7 +941,7 @@ class NewsTask(DataBaseModel):
     id = CharField(max_length=32, primary_key=True)
     task_name = CharField(max_length=128, null=False, help_text="任务名称", index=True)
     kb_id = CharField(max_length=32, null=False, help_text="关联知识库ID", index=True)
-    user_id = CharField(max_length=32, null=False, help_text="创建用户ID", index=True)
+    user_id = CharField(max_length=32, null=True, help_text="创建用户ID", index=True)
     tenant_id = CharField(max_length=32, null=False, help_text="租户ID", index=True)
     
     # 任务配置
@@ -983,7 +983,7 @@ class NewsContent(DataBaseModel):
     task_id = CharField(max_length=32, null=False, help_text="关联任务ID", index=True)
     source_id = CharField(max_length=32, null=False, help_text="新闻源ID", index=True)
     document_id = CharField(max_length=32, null=True, help_text="关联的Document ID", index=True)
-    user_id = CharField(max_length=32, null=False, help_text="用户ID", index=True)
+    user_id = CharField(max_length=32, null=True, help_text="用户ID", index=True)
     tenant_id = CharField(max_length=32, null=False, help_text="租户ID", index=True)
     
     # 新闻元数据（不重复存储内容）

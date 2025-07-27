@@ -462,29 +462,51 @@ class DemoCrawler(INewsCrawler):
             os.makedirs(task.output_directory, exist_ok=True)
             
             all_articles = []
+            error_messages = []
             
             for source in task.sources:
-                # 生成演示文章
-                articles = self._generate_demo_articles(source, task.max_articles_per_source)
-                all_articles.extend(articles)
-                
-                # 保存文章
-                success = self.save_articles_to_directory(
-                    articles, task.output_directory, source.name
-                )
-                
-                if success:
-                    result.success_count += len(articles)
-                else:
-                    result.failed_count += len(articles)
+                try:
+                    # 生成演示文章
+                    articles = self._generate_demo_articles(source, task.max_articles_per_source)
+                    all_articles.extend(articles)
+                    
+                    # 保存文章，增加详细错误处理
+                    try:
+                        success = self.save_articles_to_directory(
+                            articles, task.output_directory, source.name
+                        )
+                        
+                        if success:
+                            result.success_count += len(articles)
+                        else:
+                            result.failed_count += len(articles)
+                            error_messages.append(f"保存文章失败: {source.name}")
+                    except Exception as save_error:
+                        result.failed_count += len(articles)
+                        error_msg = f"保存文章异常: {source.name} - {str(save_error)}"
+                        error_messages.append(error_msg)
+                        print(f"❌ {error_msg}")  # 添加控制台输出
+                        
+                except Exception as source_error:
+                    error_msg = f"处理新闻源失败: {source.name} - {str(source_error)}"
+                    error_messages.append(error_msg)
+                    print(f"❌ {error_msg}")  # 添加控制台输出
             
             result.articles = all_articles
             result.total_articles = len(all_articles)
             result.status = CrawlerStatus.COMPLETED
             
+            # 汇总错误信息
+            if error_messages:
+                result.error_message = "; ".join(error_messages)
+                print(f"⚠️  Demo爬虫完成，但有错误: {result.error_message}")
+            else:
+                print(f"✅ Demo爬虫完成，生成 {result.total_articles} 篇文章")
+            
         except Exception as e:
             result.status = CrawlerStatus.FAILED
             result.error_message = str(e)
+            print(f"❌ Demo爬虫执行失败: {e}")
         
         return result
     
