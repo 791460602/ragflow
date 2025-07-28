@@ -185,11 +185,6 @@ class NewsTaskService(CommonService):
             'source_ids': kwargs.get('source_ids', []),
             'auto_parse': kwargs.get('auto_parse', True),
             'max_articles_per_source': kwargs.get('max_articles_per_source', 10),
-            'crawler_config': kwargs.get('crawler_config', {
-                'type': 'demo',
-                'timeout': 300,
-                'output_format': 'markdown'
-            }),
             'status': 'pending'
         }
         

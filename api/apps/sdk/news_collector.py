@@ -28,6 +28,7 @@ from api.utils import get_uuid
 from datetime import datetime, timedelta
 import os
 import tempfile
+from playhouse.shortcuts import model_to_dict
 import shutil
 import traceback
 
@@ -536,10 +537,11 @@ def get_news_source(tenant_id, source_id):
     try:
         e, source = NewsSourceService.get_by_id(source_id)
         
-        if not source or source.get('tenant_id') != tenant_id:
+        if not source or source.get(tenant_id).tenant_id != tenant_id:
             return get_json_result(code=404, message="新闻源不存在")
-        
-        return get_json_result(data={"source": source})
+
+        source_dict = model_to_dict(source)
+        return get_json_result(data={"source": source_dict})
         
     except Exception as e:
         return server_error_response(e)
@@ -572,7 +574,7 @@ def delete_news_source(tenant_id, source_id):
     """删除新闻源"""
     try:
         e, source = NewsSourceService.get_by_id(source_id)
-        if not source or source.get('tenant_id') != tenant_id:
+        if not source or source.get(tenant_id).tenant_id != tenant_id:
             return get_json_result(code=404, message="新闻源不存在")
         
         NewsSourceService.update_source(
@@ -651,7 +653,7 @@ def get_news_task(tenant_id, task_id):
     try:
         e, task = NewsTaskService.get_by_id(task_id)
         
-        if not task or task.get('tenant_id') != tenant_id:
+        if not task or task.get(tenant_id).tenant_id != tenant_id:
             return get_json_result(code=404, message="任务不存在")
         
         return get_json_result(data={"task": task})
@@ -687,7 +689,7 @@ def delete_news_task(tenant_id, task_id):
     """删除新闻任务"""
     try:
         e, task = NewsTaskService.get_by_id(task_id)
-        if not task or task.get('tenant_id') != tenant_id:
+        if not task or task.get(tenant_id).tenant_id != tenant_id:
             return get_json_result(code=404, message="任务不存在")
         
         NewsTaskService.update_task_status(
@@ -707,7 +709,7 @@ def execute_news_task(tenant_id, task_id):
     """执行新闻任务"""
     try:
         e, task = NewsTaskService.get_by_id(task_id)
-        if not task or task.get('tenant_id') != tenant_id:
+        if not task or task.get(tenant_id).tenant_id != tenant_id:
             return get_json_result(code=404, message="任务不存在")
         
         execution_id = get_uuid()
@@ -773,7 +775,7 @@ def get_news_content(tenant_id, content_id):
     try:
         e, content = NewsContentService.get_by_id(content_id)
         
-        if not content or content.get('tenant_id') != tenant_id:
+        if not content or content.get(tenant_id).tenant_id != tenant_id:
             return get_json_result(code=404, message="新闻内容不存在")
         
         return get_json_result(data={"content": content})
@@ -788,7 +790,7 @@ def delete_news_content(tenant_id, content_id):
     """删除新闻内容"""
     try:
         e, content = NewsContentService.get_by_id(content_id)
-        if not content or content.get('tenant_id') != tenant_id:
+        if not content or content.get(tenant_id).tenant_id != tenant_id:
             return get_json_result(code=404, message="新闻内容不存在")
         
         NewsContentService.delete_by_id(content_id)

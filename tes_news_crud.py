@@ -145,10 +145,7 @@ class NewsCRUDTester:
             "source_ids": [source_id],
             "auto_parse": True,
             "max_articles_per_source": 5,
-            "crawler_config": {
-                "type": "demo",
-                "timeout": 300
-            }
+
         }
         
         response = requests.post(
