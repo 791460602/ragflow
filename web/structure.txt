@@ -1,0 +1,238 @@
+.
+├── externals.d.ts
+├── jest-setup.ts
+├── jest.config.ts
+├── package-lock.json
+├── package.json
+├── public
+│   ├── iconfont.js
+│   ├── logo.svg
+│   └── pdfjs-dist
+│       └── pdf.worker.min.js
+├── src
+│   ├── app.tsx
+│   ├── assets
+│   │   ├── banner.png
+│   │   ├── filter.svg
+│   │   ├── icon
+│   │   ├── inter
+│   │   ├── logo-with-text.png
+│   │   ├── svg
+│   │   └── yay.jpg
+│   ├── base.ts
+│   ├── components
+│   │   ├── api-service
+│   │   ├── auto-keywords-form-field.tsx
+│   │   ├── auto-keywords-item.tsx
+│   │   ├── bulk-operate-bar.tsx
+│   │   ├── chat-input.tsx
+│   │   ├── chunk-method-dialog
+│   │   ├── chunk-method-modal
+│   │   ├── collapse.tsx
+│   │   ├── confirm-delete-dialog.tsx
+│   │   ├── copy-to-clipboard.tsx
+│   │   ├── cross-language-form-field.tsx
+│   │   ├── cross-language-item.tsx
+│   │   ├── dataset-configuration-container.tsx
+│   │   ├── delimiter-form-field.tsx
+│   │   ├── delimiter.tsx
+│   │   ├── edit-tag
+│   │   ├── editable-cell.tsx
+│   │   ├── entity-types-form-field.tsx
+│   │   ├── entity-types-item.tsx
+│   │   ├── excel-to-html-form-field.tsx
+│   │   ├── excel-to-html.tsx
+│   │   ├── file-icon
+│   │   ├── file-upload-dialog
+│   │   ├── file-upload-modal
+│   │   ├── file-upload.tsx
+│   │   ├── file-uploader.tsx
+│   │   ├── form-container.tsx
+│   │   ├── highlight-markdown
+│   │   ├── hooks
+│   │   ├── icon-font.tsx
+│   │   ├── image
+│   │   ├── indented-tree
+│   │   ├── knowledge-base-item.tsx
+│   │   ├── large-model-form-field.tsx
+│   │   ├── layout-recognize-form-field.tsx
+│   │   ├── layout-recognize.tsx
+│   │   ├── line-chart
+│   │   ├── list-filter-bar
+│   │   ├── llm-select
+│   │   ├── llm-setting-items
+│   │   ├── llm-tools-select.tsx
+│   │   ├── max-token-number-from-field.tsx
+│   │   ├── max-token-number.tsx
+│   │   ├── message-history-window-size-item.tsx
+│   │   ├── message-input
+│   │   ├── message-item
+│   │   ├── modal-manager.tsx
+│   │   ├── more-button.tsx
+│   │   ├── new-document-link.tsx
+│   │   ├── next-markdown-content
+│   │   ├── next-message-item
+│   │   ├── operate-dropdown
+│   │   ├── originui
+│   │   ├── page-header.tsx
+│   │   ├── page-rank-form-field.tsx
+│   │   ├── page-rank.tsx
+│   │   ├── parse-configuration
+│   │   ├── password-input
+│   │   ├── pdf-drawer
+│   │   ├── pdf-previewer
+│   │   ├── prompt-editor
+│   │   ├── ragflow-avatar.tsx
+│   │   ├── rename-dialog
+│   │   ├── rename-modal
+│   │   ├── rerank.tsx
+│   │   ├── retrieval-documents
+│   │   ├── similarity-slider
+│   │   ├── skeleton-card.tsx
+│   │   ├── slider-input-form-field.tsx
+│   │   ├── svg-icon.tsx
+│   │   ├── switch-fom-field.tsx
+│   │   ├── table-skeleton.tsx
+│   │   ├── tavily-item.tsx
+│   │   ├── theme-provider.tsx
+│   │   ├── top-n-item.tsx
+│   │   ├── ui
+│   │   ├── use-knowledge-graph-item.tsx
+│   │   └── xyflow
+│   ├── conf.json
+│   ├── constants
+│   │   ├── agent.ts
+│   │   ├── authorization.ts
+│   │   ├── chat.ts
+│   │   ├── common.ts
+│   │   ├── file.ts
+│   │   ├── form.ts
+│   │   ├── knowledge.ts
+│   │   ├── llm.ts
+│   │   └── setting.ts
+│   ├── custom.d.ts
+│   ├── global.less
+│   ├── hooks
+│   │   ├── auth-hooks.ts
+│   │   ├── chat-hooks.ts
+│   │   ├── chunk-hooks.ts
+│   │   ├── common-hooks.tsx
+│   │   ├── document-hooks.ts
+│   │   ├── file-manager-hooks.ts
+│   │   ├── flow-hooks.ts
+│   │   ├── knowledge-hooks.ts
+│   │   ├── llm-hooks.tsx
+│   │   ├── logic-hooks
+│   │   ├── logic-hooks.ts
+│   │   ├── login-hooks.ts
+│   │   ├── plugin-hooks.tsx
+│   │   ├── route-hook.ts
+│   │   ├── system-hooks.ts
+│   │   ├── use-agent-request.ts
+│   │   ├── use-callback-ref.ts
+│   │   ├── use-chat-request.ts
+│   │   ├── use-chunk-request.ts
+│   │   ├── use-controllable-state.ts
+│   │   ├── use-document-request.ts
+│   │   ├── use-file-request.ts
+│   │   ├── use-knowledge-request.ts
+│   │   ├── use-llm-request.ts
+│   │   ├── use-mcp-request.ts
+│   │   ├── use-send-message.ts
+│   │   └── user-setting-hooks.tsx
+│   ├── icons
+│   │   ├── github.svg
+│   │   └── google.svg
+│   ├── inter.less
+│   ├── interfaces
+│   │   ├── common.ts
+│   │   ├── database
+│   │   └── request
+│   ├── layouts
+│   │   ├── components
+│   │   ├── index.less
+│   │   ├── index.tsx
+│   │   ├── next-header.tsx
+│   │   └── next.tsx
+│   ├── less
+│   │   ├── index.less
+│   │   ├── mixins.less
+│   │   └── variable.less
+│   ├── lib
+│   │   └── utils.ts
+│   ├── locales
+│   │   ├── config.ts
+│   │   ├── de.ts
+│   │   ├── en.ts
+│   │   ├── es.ts
+│   │   ├── id.ts
+│   │   ├── ja.ts
+│   │   ├── pt-br.ts
+│   │   ├── until.ts
+│   │   ├── vi.ts
+│   │   ├── zh-traditional.ts
+│   │   └── zh.ts
+│   ├── pages
+│   │   ├── 404.jsx
+│   │   ├── add-knowledge
+│   │   ├── agent
+│   │   ├── agents
+│   │   ├── chat
+│   │   ├── chunk
+│   │   ├── dataset
+│   │   ├── datasets
+│   │   ├── document-viewer
+│   │   ├── file-manager
+│   │   ├── files
+│   │   ├── flow
+│   │   ├── home
+│   │   ├── knowledge
+│   │   ├── login
+│   │   ├── login-next
+│   │   ├── news_collector
+│   │   ├── next-chats
+│   │   ├── next-search
+│   │   ├── next-searches
+│   │   ├── profile-setting
+│   │   ├── search
+│   │   └── user-setting
+│   ├── routes.ts
+│   ├── services
+│   │   ├── agent-service.ts
+│   │   ├── chat-service.ts
+│   │   ├── file-manager-service.ts
+│   │   ├── flow-service.ts
+│   │   ├── knowledge-service.ts
+│   │   ├── mcp-server-service.ts
+│   │   ├── plugin-service.ts
+│   │   └── user-service.ts
+│   ├── theme
+│   │   ├── theme.ts
+│   │   └── vars.less
+│   ├── utils
+│   │   ├── api.ts
+│   │   ├── authorization-util.ts
+│   │   ├── chat.ts
+│   │   ├── common-util.ts
+│   │   ├── component-util.ts
+│   │   ├── dataset-util.ts
+│   │   ├── date.ts
+│   │   ├── document-util.ts
+│   │   ├── dom-util.ts
+│   │   ├── file-util.ts
+│   │   ├── form.ts
+│   │   ├── index.ts
+│   │   ├── llm-util.ts
+│   │   ├── next-request.ts
+│   │   ├── register-server.ts
+│   │   ├── request.ts
+│   │   └── store-util.ts
+│   └── wrappers
+│       └── auth.tsx
+├── structure.txt
+├── tailwind.config.js
+├── tailwind.css
+├── tsconfig.json
+└── typings.d.ts
+
+80 directories, 156 files

@@ -365,15 +365,19 @@ const routes = [
     ],
   },
   {
+    // path: Routes.NewsCollector,
+    // // layout: false,
+    // component: '@/layouts/next',
+    // routes: [
+    //   {
+    //     path: Routes.NewsCollector,
+    //     component: '@/pages/news_collector',
+    //   },
+    // ],
     path: Routes.NewsCollector,
-    layout: false,
-    component: '@/layouts/next',
-    routes: [
-      {
-        path: Routes.NewsCollector,
-        component: '@/pages/news_collector',
-      },
-    ],
+    // layout: false,
+    component: '@/pages/news_collector',
+
   },
 ];
 
