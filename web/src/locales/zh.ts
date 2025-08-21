@@ -38,6 +38,7 @@ export default {
       previousPage: '上一页',
       nextPage: '下一页',
       add: '添加',
+      promptPlaceholder: '请输入或使用 / 快速插入变量。',
     },
     login: {
       login: '登录',
@@ -73,6 +74,7 @@ export default {
       search: '搜索',
       welcome: '欢迎来到',
       newsCollector: '新闻收集',
+      dataset: '数据集',
     },
     knowledgeList: {
       welcome: '欢迎回来',
@@ -116,7 +118,7 @@ export default {
       similarityThreshold: '相似度阈值',
       similarityThresholdTip:
         '我们使用混合相似度得分来评估两行文本之间的距离。 它是加权关键词相似度和向量余弦相似度。 如果查询和块之间的相似度小于此阈值，则该块将被过滤掉。默认设置为 0.2，也就是说文本块的混合相似度得分至少 20 才会被召回。',
-      vectorSimilarityWeight: '关键字相似度权重',
+      vectorSimilarityWeight: '相似度相似度权重',
       vectorSimilarityWeightTip:
         '我们使用混合相似性评分来评估两行文本之间的距离。它是加权关键字相似性和矢量余弦相似性或rerank得分（0〜1）。两个权重的总和为1.0。',
       testText: '测试文本',
@@ -181,8 +183,8 @@ export default {
 <b>元数据为：</b><br>
 <code>
 {
-"作者"："Alex Dowson"，
-"日期"："2024-11-12"
+    "作者": "Alex Dowson",
+    "日期": "2024-11-12"
 }
 </code><br>
 <b>提示将为：</b><br>
@@ -559,6 +561,18 @@ General：实体和关系提取提示来自 GitHub - microsoft/graphrag：基于
       tavilyApiKeyHelp: '如何获取？',
       crossLanguage: '跨语言搜索',
       crossLanguageTip: `选择一种或多种语言进行跨语言搜索。如果未选择任何语言，系统将使用原始查询进行搜索。`,
+      metadata: '元数据',
+      metadataTip:
+        '元数据过滤是使用元数据属性（例如标签、类别或访问权限）来优化和控制系统内相关信息检索的过程。',
+      conditions: '条件',
+      addCondition: '增加条件',
+      meta: {
+        disabled: '禁用',
+        automatic: '自动',
+        manual: '手动',
+      },
+      cancel: '取消',
+      chatSetting: '聊天设置',
     },
     setting: {
       profile: '概要',
@@ -786,6 +800,7 @@ General：实体和关系提取提示来自 GitHub - microsoft/graphrag：基于
       fileError: '文件错误',
       uploadLimit: '文件大小不能超过10M，文件总数不超过128个',
       destinationFolder: '目标文件夹',
+      pleaseUploadAtLeastOneFile: '请上传至少一个文件',
     },
     flow: {
       flow: '工作流',
@@ -804,7 +819,7 @@ General：实体和关系提取提示来自 GitHub - microsoft/graphrag：基于
       to: '下一步',
       msg: '消息',
       msgTip: '输出上游组件的变量内容或者自己输入的文本。',
-      messagePlaceholder: '请输入您的消息内容，使用'/'快速插入变量。',
+      messagePlaceholder: '请输入您的消息内容，使用' / '快速插入变量。',
       messageMsg: '请输入消息或删除此字段。',
       addField: '新增字段',
       addMessage: '新增消息',
@@ -844,7 +859,7 @@ General：实体和关系提取提示来自 GitHub - microsoft/graphrag：基于
       relevant: '是否相关',
       rewriteQuestion: '问题优化',
       begin: '开始',
-      message: '静态消息',
+      message: '回复消息',
       blank: '空',
       createFromNothing: '从无到有',
       addItem: '新增',
@@ -1151,7 +1166,7 @@ General：实体和关系提取提示来自 GitHub - microsoft/graphrag：基于
       note: '注释',
       noteDescription: '注释',
       notePlaceholder: '请输入注释',
-      invoke: 'Invoke',
+      invoke: 'HTTP 请求',
       invokeDescription:
         '该组件可以调用远程端点调用。将其他组件的输出作为参数或设置常量参数来调用远程函数。',
       url: 'Url',
@@ -1201,7 +1216,7 @@ General：实体和关系提取提示来自 GitHub - microsoft/graphrag：基于
       jsonUploadTypeErrorMessage: '请上传json文件',
       jsonUploadContentErrorMessage: 'json 文件错误',
       iteration: '循环',
-      iterationDescription: `该组件首先将输入以"分隔符"分割成数组，然后依次对数组中的元素执行相同的操作步骤，直到输出所有结果，可以理解为一个任务批处理器。例如在长文本翻译迭代节点中，如果所有内容都输入到LLM节点，可能会达到单次对话的限制，上游节点可以先将长文本分割成多个片段，配合迭代节点对每个片段进行批量翻译，避免达到单次对话的LLM消息限制。`,
+      iterationDescription: `该组件负责迭代生成新的内容，对列表对象执行多次步骤直至输出所有结果。`,
       delimiterTip: `该分隔符用于将输入文本分割成几个文本片段，每个文本片段的回显将作为每次迭代的输入项。`,
       delimiterOptions: {
         comma: '逗号',
@@ -1246,12 +1261,14 @@ General：实体和关系提取提示来自 GitHub - microsoft/graphrag：基于
       modeTip: '模式定义了工作流的启动方式。',
       beginInputTip: '通过定义输入参数，此内容可以被后续流程中的其他组件访问。',
       query: '查询变量',
-      agent: 'Agent',
+      agent: '智能体',
       agentDescription: '构建具备推理、工具调用和多智能体协同的智能体组件。',
       maxRecords: '最大记录数',
       createAgent: 'Create Agent',
       stringTransform: '文本处理',
       userFillUp: '等待输入',
+      userFillUpDescription: `此组件会暂停当前的流程并等待用户发送消息，接收到消息之后再进行之后的流程。`,
+
       codeExec: '代码',
       tavilySearch: 'Tavily Search',
       tavilySearchDescription: '通过 Tavily 服务搜索结果',
@@ -1261,6 +1278,30 @@ General：实体和关系提取提示来自 GitHub - microsoft/graphrag：基于
       management: '管理',
       import: '导入',
       export: '导出',
+      subject: '主题',
+      logTimeline: {
+        begin: '准备开始',
+        userFillUp: '等你输入',
+        agent: '智能体正在思考',
+        retrieval: '查找知识',
+        message: '回复',
+        awaitResponse: '等你输入',
+        switch: '选择最佳路线',
+        iteration: '批量处理',
+        categorize: '信息归类',
+        code: '运行小段代码',
+        textProcessing: '整理文字',
+        tavilySearch: '正在网上搜索',
+        tavilyExtract: '读取网页内容',
+        exeSQL: '查询数据库',
+        google: '正在网上搜索',
+        wikipedia: '搜索维基百科',
+        googleScholar: '学术检索',
+        gitHub: '搜索',
+        email: '发送邮件',
+        httpRequest: '请求接口',
+        wenCai: '查询财务数据',
+      },
     },
     footer: {
       profile: 'All rights reserved @ React',
@@ -1280,9 +1321,34 @@ General：实体和关系提取提示来自 GitHub - microsoft/graphrag：基于
         },
       },
     },
-  },
-  modal: {
-    okText: '确认',
-    cancelText: '取消',
+    modal: {
+      okText: '确认',
+      cancelText: '取消',
+    },
+    search: {
+      createSearch: '新建查询',
+      searchGreeting: '今天我能为你做些什么？',
+      profile: '隐藏个人资料',
+      locale: '语言',
+      embedCode: '嵌入代码',
+      id: 'ID',
+      copySuccess: '复制成功',
+      welcomeBack: '欢迎回来',
+      searchSettings: '搜索设置',
+      name: '姓名',
+      avatar: '头像',
+      description: '描述',
+      datasets: '数据集',
+      rerankModel: 'rerank 模型',
+      AISummary: 'AI 总结',
+      enableWebSearch: '启用网页搜索',
+      enableRelatedSearch: '启用相关搜索',
+      showQueryMindmap: '显示查询思维导图',
+      embedApp: '嵌入网站',
+      relatedSearch: '相关搜索',
+      descriptionValue: '你是一位智能助手。',
+      okText: '保存',
+      cancelText: '返回',
+    },
   },
 };

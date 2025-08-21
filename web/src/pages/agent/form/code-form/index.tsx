@@ -2,6 +2,7 @@ import Editor, { loader } from '@monaco-editor/react';
 import { INextOperatorForm } from '../../interface';
 
 import { FormContainer } from '@/components/form-container';
+import { useIsDarkTheme } from '@/components/theme-provider';
 import {
   Form,
   FormControl,
@@ -19,6 +20,7 @@ import { memo } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { buildOutputList } from '../../utils/build-output-list';
+import { FormWrapper } from '../components/form-wrapper';
 import { Output } from '../components/output';
 import {
   DynamicInputVariable,
@@ -45,6 +47,7 @@ function CodeForm({ node }: INextOperatorForm) {
   const formData = node?.data.form as ICodeForm;
   const { t } = useTranslation();
   const values = useValues(node);
+  const isDarkTheme = useIsDarkTheme();
 
   const form = useForm<FormSchemaType>({
     defaultValues: values,
@@ -57,12 +60,7 @@ function CodeForm({ node }: INextOperatorForm) {
 
   return (
     <Form {...form}>
-      <form
-        className="p-5 space-y-5"
-        onSubmit={(e) => {
-          e.preventDefault();
-        }}
-      >
+      <FormWrapper>
         <DynamicInputVariable
           node={node}
           title={t('flow.input')}
@@ -98,7 +96,7 @@ function CodeForm({ node }: INextOperatorForm) {
               <FormControl>
                 <Editor
                   height={300}
-                  theme="vs-dark"
+                  theme={isDarkTheme ? 'vs-dark' : 'vs'}
                   language={formData.lang}
                   options={{
                     minimap: { enabled: false },
@@ -159,7 +157,7 @@ function CodeForm({ node }: INextOperatorForm) {
             </FormContainer>
           </div>
         )}
-      </form>
+      </FormWrapper>
       <div className="p-5">
         <Output list={buildOutputList(formData.outputs)}></Output>
       </div>

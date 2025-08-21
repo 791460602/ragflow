@@ -463,6 +463,7 @@ class DataBaseModel(BaseModel):
 
 
 @DB.connection_context()
+@DB.lock("init_database_tables", 60)
 def init_database_tables(alter_fields=[]):
     members = inspect.getmembers(sys.modules[__name__], inspect.isclass)
     table_objs = []
@@ -474,7 +475,7 @@ def init_database_tables(alter_fields=[]):
             if not obj.table_exists():
                 logging.debug(f"start create table {obj.__name__}")
                 try:
-                    obj.create_table()
+                    obj.create_table(safe=True)
                     logging.debug(f"create table success: {obj.__name__}")
                 except Exception as e:
                     logging.exception(e)
@@ -741,8 +742,9 @@ class Dialog(DataBaseModel):
     prompt_type = CharField(max_length=16, null=False, default="simple", help_text="simple|advanced", index=True)
     prompt_config = JSONField(
         null=False,
-        default={"system": "", "prologue": "Hi! I'm your assistant, what can I do for you?", "parameters": [], "empty_response": "Sorry! No relevant content was found in the knowledge base!"},
+        default={"system": "", "prologue": "Hi! I'm your assistant. What can I do for you?", "parameters": [], "empty_response": "Sorry! No relevant content was found in the knowledge base!"},
     )
+    meta_data_filter = JSONField(null=True, default={})
 
     similarity_threshold = FloatField(default=0.2)
     vector_similarity_weight = FloatField(default=0.3)
@@ -798,6 +800,7 @@ class API4Conversation(DataBaseModel):
     duration = FloatField(default=0, index=True)
     round = IntegerField(default=0, index=True)
     thumb_up = IntegerField(default=0, index=True)
+    errors = TextField(null=True, help_text="errors")
 
     class Meta:
         db_table = "api_4_conversation"
@@ -869,7 +872,7 @@ class Search(DataBaseModel):
         default={
             "kb_ids": [],
             "doc_ids": [],
-            "similarity_threshold": 0.0,
+            "similarity_threshold": 0.2,
             "vector_similarity_weight": 0.3,
             "use_kg": False,
             # rerank settings
@@ -878,11 +881,12 @@ class Search(DataBaseModel):
             # chat settings
             "summary": False,
             "chat_id": "",
+            # Leave it here for reference, don't need to set default values
             "llm_setting": {
-                "temperature": 0.1,
-                "top_p": 0.3,
-                "frequency_penalty": 0.7,
-                "presence_penalty": 0.4,
+                # "temperature": 0.1,
+                # "top_p": 0.3,
+                # "frequency_penalty": 0.7,
+                # "presence_penalty": 0.4,
             },
             "chat_settingcross_languages": [],
             "highlight": False,
@@ -1002,4 +1006,120 @@ class NewsContent(DataBaseModel):
     
     class Meta:
         db_table = "news_content"
+def migrate_db():
+    logging.disable(logging.ERROR)
+    migrator = DatabaseMigrator[settings.DATABASE_TYPE.upper()].value(DB)
+    try:
+        migrate(migrator.add_column("file", "source_type", CharField(max_length=128, null=False, default="", help_text="where dose this document come from", index=True)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("tenant", "rerank_id", CharField(max_length=128, null=False, default="BAAI/bge-reranker-v2-m3", help_text="default rerank model ID")))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("dialog", "rerank_id", CharField(max_length=128, null=False, default="", help_text="default rerank model ID")))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("dialog", "top_k", IntegerField(default=1024)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.alter_column_type("tenant_llm", "api_key", CharField(max_length=2048, null=True, help_text="API KEY", index=True)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("api_token", "source", CharField(max_length=16, null=True, help_text="none|agent|dialog", index=True)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("tenant", "tts_id", CharField(max_length=256, null=True, help_text="default tts model ID", index=True)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("api_4_conversation", "source", CharField(max_length=16, null=True, help_text="none|agent|dialog", index=True)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("task", "retry_count", IntegerField(default=0)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.alter_column_type("api_token", "dialog_id", CharField(max_length=32, null=True, index=True)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("tenant_llm", "max_tokens", IntegerField(default=8192, index=True)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("api_4_conversation", "dsl", JSONField(null=True, default={})))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("knowledgebase", "pagerank", IntegerField(default=0, index=False)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("api_token", "beta", CharField(max_length=255, null=True, index=True)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("task", "digest", TextField(null=True, help_text="task digest", default="")))
+    except Exception:
+        pass
+
+    try:
+        migrate(migrator.add_column("task", "chunk_ids", LongTextField(null=True, help_text="chunk ids", default="")))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("conversation", "user_id", CharField(max_length=255, null=True, help_text="user_id", index=True)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("document", "meta_fields", JSONField(null=True, default={})))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("task", "task_type", CharField(max_length=32, null=False, default="")))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("task", "priority", IntegerField(default=0)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("user_canvas", "permission", CharField(max_length=16, null=False, help_text="me|team", default="me", index=True)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("llm", "is_tools", BooleanField(null=False, help_text="support tools", default=False)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("mcp_server", "variables", JSONField(null=True, help_text="MCP Server variables", default=dict)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.rename_column("task", "process_duation", "process_duration"))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.rename_column("document", "process_duation", "process_duration"))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("document", "suffix", CharField(max_length=32, null=False, default="", help_text="The real file extension suffix", index=True)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("api_4_conversation", "errors", TextField(null=True, help_text="errors")))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("dialog", "meta_data_filter", JSONField(null=True, default={})))
+    except Exception:
+        pass
     logging.disable(logging.NOTSET)

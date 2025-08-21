@@ -37,7 +37,12 @@ from rag.utils import num_tokens_from_string, truncate
 
 
 class Base(ABC):
-    def __init__(self, key, model_name):
+    def __init__(self, key, model_name, **kwargs):
+        """
+        Constructor for abstract base class.
+        Parameters are accepted for interface consistency but are not stored.
+        Subclasses should implement their own initialization as needed.
+        """
         pass
 
     def encode(self, texts: list):
@@ -60,7 +65,6 @@ class Base(ABC):
 
 class DefaultEmbedding(Base):
     _FACTORY_NAME = "BAAI"
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     _model = None
     _model_name = ""
     _model_lock = threading.Lock()
@@ -78,9 +82,13 @@ class DefaultEmbedding(Base):
 
         """
         if not settings.LIGHTEN:
+            input_cuda_visible_devices = None
             with DefaultEmbedding._model_lock:
                 import torch
                 from FlagEmbedding import FlagModel
+                if "CUDA_VISIBLE_DEVICES" in os.environ:
+                    input_cuda_visible_devices = os.environ["CUDA_VISIBLE_DEVICES"]
+                    os.environ["CUDA_VISIBLE_DEVICES"] = "0" # handle some issues with multiple GPUs when initializing the model
 
                 if not DefaultEmbedding._model or model_name != DefaultEmbedding._model_name:
                     try:
@@ -95,6 +103,10 @@ class DefaultEmbedding(Base):
                             repo_id="BAAI/bge-large-zh-v1.5", local_dir=os.path.join(get_home_cache_dir(), re.sub(r"^[a-zA-Z0-9]+/", "", model_name)), local_dir_use_symlinks=False
                         )
                         DefaultEmbedding._model = FlagModel(model_dir, query_instruction_for_retrieval="为这个句子生成表示以用于检索相关文章：", use_fp16=torch.cuda.is_available())
+                    finally:
+                        if input_cuda_visible_devices:
+                            # restore CUDA_VISIBLE_DEVICES
+                            os.environ["CUDA_VISIBLE_DEVICES"] = input_cuda_visible_devices
         self._model = DefaultEmbedding._model
         self._model_name = DefaultEmbedding._model_name
 
@@ -371,8 +383,9 @@ class XinferenceEmbed(Base):
         ress = []
         total_tokens = 0
         for i in range(0, len(texts), batch_size):
-            res = self.client.embeddings.create(input=texts[i : i + batch_size], model=self.model_name)
+            res = None
             try:
+                res = self.client.embeddings.create(input=texts[i : i + batch_size], model=self.model_name)
                 ress.extend([d.embedding for d in res.data])
                 total_tokens += self.total_token_count(res)
             except Exception as _e:
@@ -380,8 +393,9 @@ class XinferenceEmbed(Base):
         return np.array(ress), total_tokens
 
     def encode_queries(self, text):
-        res = self.client.embeddings.create(input=[text], model=self.model_name)
+        res = None
         try:
+            res = self.client.embeddings.create(input=[text], model=self.model_name)
             return np.array(res.data[0].embedding), self.total_token_count(res)
         except Exception as _e:
             log_exception(_e, res)
@@ -456,25 +470,42 @@ class MistralEmbed(Base):
         self.model_name = model_name
 
     def encode(self, texts: list):
+        import time
+        import random
         texts = [truncate(t, 8196) for t in texts]
         batch_size = 16
         ress = []
         token_count = 0
         for i in range(0, len(texts), batch_size):
-            res = self.client.embeddings(input=texts[i : i + batch_size], model=self.model_name)
-            try:
-                ress.extend([d.embedding for d in res.data])
-                token_count += self.total_token_count(res)
-            except Exception as _e:
-                log_exception(_e, res)
+            retry_max = 5
+            while retry_max > 0:
+                try:
+                    res = self.client.embeddings(input=texts[i : i + batch_size], model=self.model_name)
+                    ress.extend([d.embedding for d in res.data])
+                    token_count += self.total_token_count(res)
+                    break
+                except Exception as _e:
+                    if retry_max == 1:
+                        log_exception(_e)
+                    delay = random.uniform(20, 60)
+                    time.sleep(delay)
+                    retry_max -= 1
         return np.array(ress), token_count
 
     def encode_queries(self, text):
-        res = self.client.embeddings(input=[truncate(text, 8196)], model=self.model_name)
-        try:
-            return np.array(res.data[0].embedding), self.total_token_count(res)
-        except Exception as _e:
-            log_exception(_e, res)
+        import time
+        import random
+        retry_max = 5
+        while retry_max > 0:
+            try:
+                res = self.client.embeddings(input=[truncate(text, 8196)], model=self.model_name)
+                return np.array(res.data[0].embedding), self.total_token_count(res)
+            except Exception as _e:
+                if retry_max == 1:
+                    log_exception(_e)
+                delay = random.randint(20, 60)
+                time.sleep(delay)
+                retry_max -= 1
 
 
 class BedrockEmbed(Base):
@@ -838,7 +869,7 @@ class VoyageEmbed(Base):
 class HuggingFaceEmbed(Base):
     _FACTORY_NAME = "HuggingFace"
 
-    def __init__(self, key, model_name, base_url=None):
+    def __init__(self, key, model_name, base_url=None, **kwargs):
         if not model_name:
             raise ValueError("Model name cannot be None")
         self.key = key
@@ -904,12 +935,20 @@ class GiteeEmbed(SILICONFLOWEmbed):
         if not base_url:
             base_url = "https://ai.gitee.com/v1/embeddings"
         super().__init__(key, model_name, base_url)
-
-
+        
 class DeepInfraEmbed(OpenAIEmbed):
     _FACTORY_NAME = "DeepInfra"
 
     def __init__(self, key, model_name, base_url="https://api.deepinfra.com/v1/openai"):
         if not base_url:
             base_url = "https://api.deepinfra.com/v1/openai"
+        super().__init__(key, model_name, base_url)
+
+
+class Ai302Embed(Base):
+    _FACTORY_NAME = "302.AI"
+
+    def __init__(self, key, model_name, base_url="https://api.302.ai/v1/embeddings"):
+        if not base_url:
+            base_url = "https://api.302.ai/v1/embeddings"
         super().__init__(key, model_name, base_url)
