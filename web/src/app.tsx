@@ -21,6 +21,7 @@ import React, { ReactNode, useEffect, useState } from 'react';
 import { ThemeProvider, useTheme } from './components/theme-provider';
 import { SidebarProvider } from './components/ui/sidebar';
 import { TooltipProvider } from './components/ui/tooltip';
+import { ThemeEnum } from './constants/common';
 import storage from './utils/authorization-util';
 
 dayjs.extend(customParseFormat);
@@ -84,7 +85,7 @@ function Root({ children }: React.PropsWithChildren) {
         <Sonner position={'top-right'} expand richColors closeButton></Sonner>
         <Toaster />
       </ConfigProvider>
-      <ReactQueryDevtools buttonPosition={'top-left'} />
+      <ReactQueryDevtools buttonPosition={'top-left'} initialIsOpen={false} />
     </>
   );
 }
@@ -101,7 +102,10 @@ const RootProvider = ({ children }: React.PropsWithChildren) => {
   return (
     <TooltipProvider>
       <QueryClientProvider client={queryClient}>
-        <ThemeProvider defaultTheme="light" storageKey="ragflow-ui-theme">
+        <ThemeProvider
+          defaultTheme={ThemeEnum.Light}
+          storageKey="ragflow-ui-theme"
+        >
           <Root>{children}</Root>
         </ThemeProvider>
       </QueryClientProvider>

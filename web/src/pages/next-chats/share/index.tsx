@@ -1,23 +1,21 @@
-import { FileUploadProps } from '@/components/file-upload';
+import { EmbedContainer } from '@/components/embed-container';
 import { NextMessageInput } from '@/components/message-input/next';
-import MessageItem from '@/components/next-message-item';
+import MessageItem from '@/components/message-item';
 import PdfDrawer from '@/components/pdf-drawer';
 import { useClickDrawer } from '@/components/pdf-drawer/hooks';
 import { MessageType, SharedFrom } from '@/constants/chat';
 import { useFetchNextConversationSSE } from '@/hooks/chat-hooks';
-import {
-  useFetchAgentAvatar,
-  useUploadCanvasFileWithProgress,
-} from '@/hooks/use-agent-request';
-import { cn } from '@/lib/utils';
+import { useFetchFlowSSE } from '@/hooks/flow-hooks';
+import { useFetchExternalChatInfo } from '@/hooks/use-chat-request';
 import i18n from '@/locales/config';
 import { useSendButtonDisabled } from '@/pages/chat/hooks';
 import { buildMessageUuidWithRole } from '@/utils/chat';
-import React, { forwardRef, useCallback, useMemo } from 'react';
+import React, { forwardRef, useMemo } from 'react';
 import {
   useGetSharedChatSearchParams,
-  useSendNextSharedMessage,
+  useSendSharedMessage,
 } from '../hooks/use-send-shared-message';
+import { buildMessageItemReference } from '../utils';
 
 const ChatContainer = () => {
   const {
@@ -29,38 +27,26 @@ const ChatContainer = () => {
   const { visible, hideModal, documentId, selectedChunk, clickDocumentButton } =
     useClickDrawer();
 
-  const { uploadCanvasFile, loading } =
-    useUploadCanvasFileWithProgress(conversationId);
-
   const {
     handlePressEnter,
     handleInputChange,
     value,
     sendLoading,
-    ref,
     derivedMessages,
     hasError,
     stopOutputMessage,
-    findReferenceByMessageId,
-    appendUploadResponseList,
-  } = useSendNextSharedMessage();
+    scrollRef,
+    messageContainerRef,
+    removeAllMessagesExceptFirst,
+  } = useSendSharedMessage();
   const sendDisabled = useSendButtonDisabled(value);
+  const { data: chatInfo } = useFetchExternalChatInfo();
 
   const useFetchAvatar = useMemo(() => {
     return from === SharedFrom.Agent
-      ? useFetchAgentAvatar
+      ? useFetchFlowSSE
       : useFetchNextConversationSSE;
   }, [from]);
-
-  const handleUploadFile: NonNullable<FileUploadProps['onUpload']> =
-    useCallback(
-      async (files, options) => {
-        const ret = await uploadCanvasFile({ files, options });
-        appendUploadResponseList(ret.data);
-      },
-      [appendUploadResponseList, uploadCanvasFile],
-    );
-
   React.useEffect(() => {
     if (locale && i18n.language !== locale) {
       i18n.changeLanguage(locale);
@@ -73,51 +59,69 @@ const ChatContainer = () => {
   }
 
   return (
-    <section className="h-[100vh]">
-      <section className={cn('flex flex-1 flex-col p-2.5 h-full')}>
-        <div className={cn('flex flex-1 flex-col overflow-auto pr-2')}>
-          <div>
-            {derivedMessages?.map((message, i) => {
-              return (
-                <MessageItem
-                  visibleAvatar={visibleAvatar}
-                  key={buildMessageUuidWithRole(message)}
-                  avatarDialog={avatarData.avatar}
-                  item={message}
-                  nickname="You"
-                  reference={findReferenceByMessageId(message.id)}
-                  loading={
-                    message.role === MessageType.Assistant &&
-                    sendLoading &&
-                    derivedMessages?.length - 1 === i
-                  }
-                  index={i}
-                  clickDocumentButton={clickDocumentButton}
-                  showLikeButton={false}
-                  showLoudspeaker={false}
-                  showLog={false}
-                  sendLoading={sendLoading}
-                ></MessageItem>
-              );
-            })}
+    <>
+      <EmbedContainer
+        title={chatInfo.title}
+        avatar={chatInfo.avatar}
+        handleReset={removeAllMessagesExceptFirst}
+      >
+        <div className="flex flex-1 flex-col p-2.5  h-[90vh] m-3">
+          <div
+            className={
+              'flex flex-1 flex-col overflow-auto scrollbar-auto m-auto w-5/6'
+            }
+            ref={messageContainerRef}
+          >
+            <div>
+              {derivedMessages?.map((message, i) => {
+                return (
+                  <MessageItem
+                    visibleAvatar={visibleAvatar}
+                    key={buildMessageUuidWithRole(message)}
+                    avatarDialog={avatarData?.avatar}
+                    item={message}
+                    nickname="You"
+                    reference={buildMessageItemReference(
+                      {
+                        message: derivedMessages,
+                        reference: [],
+                      },
+                      message,
+                    )}
+                    loading={
+                      message.role === MessageType.Assistant &&
+                      sendLoading &&
+                      derivedMessages?.length - 1 === i
+                    }
+                    index={i}
+                    clickDocumentButton={clickDocumentButton}
+                    showLikeButton={false}
+                    showLoudspeaker={false}
+                  ></MessageItem>
+                );
+              })}
+            </div>
+            <div ref={scrollRef} />
           </div>
-          <div ref={ref} />
+          <div className="flex w-full justify-center mb-8">
+            <div className="w-5/6">
+              <NextMessageInput
+                isShared
+                value={value}
+                disabled={hasError}
+                sendDisabled={sendDisabled}
+                conversationId={conversationId}
+                onInputChange={handleInputChange}
+                onPressEnter={handlePressEnter}
+                sendLoading={sendLoading}
+                uploadMethod="external_upload_and_parse"
+                showUploadIcon={false}
+                stopOutputMessage={stopOutputMessage}
+              ></NextMessageInput>
+            </div>
+          </div>
         </div>
-
-        <NextMessageInput
-          isShared
-          value={value}
-          disabled={hasError}
-          sendDisabled={sendDisabled}
-          conversationId={conversationId}
-          onInputChange={handleInputChange}
-          onPressEnter={handlePressEnter}
-          sendLoading={sendLoading}
-          stopOutputMessage={stopOutputMessage}
-          onUpload={handleUploadFile}
-          isUploading={loading}
-        ></NextMessageInput>
-      </section>
+      </EmbedContainer>
       {visible && (
         <PdfDrawer
           visible={visible}
@@ -126,7 +130,7 @@ const ChatContainer = () => {
           chunk={selectedChunk}
         ></PdfDrawer>
       )}
-    </section>
+    </>
   );
 };
 

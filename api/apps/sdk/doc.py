@@ -32,13 +32,14 @@ from api.db.services.document_service import DocumentService
 from api.db.services.file2document_service import File2DocumentService
 from api.db.services.file_service import FileService
 from api.db.services.knowledgebase_service import KnowledgebaseService
-from api.db.services.llm_service import LLMBundle, TenantLLMService
+from api.db.services.llm_service import LLMBundle
+from api.db.services.tenant_llm_service import TenantLLMService
 from api.db.services.task_service import TaskService, queue_tasks
 from api.utils.api_utils import check_duplicate_ids, construct_json_result, get_error_data_result, get_parser_config, get_result, server_error_response, token_required
 from rag.app.qa import beAdoc, rmPrefix
 from rag.app.tag import label_question
 from rag.nlp import rag_tokenizer, search
-from rag.prompts import keyword_extraction, cross_languages
+from rag.prompts import cross_languages, keyword_extraction
 from rag.utils import rmSpace
 from rag.utils.storage_factory import STORAGE_IMPL
 
@@ -456,6 +457,18 @@ def list_docs(dataset_id, tenant_id):
         required: false
         default: true
         description: Order in descending.
+    - in: query
+        name: create_time_from
+        type: integer
+        required: false
+        default: 0
+        description: Unix timestamp for filtering documents created after this time. 0 means no filter.
+      - in: query
+        name: create_time_to
+        type: integer
+        required: false
+        default: 0
+        description: Unix timestamp for filtering documents created before this time. 0 means no filter.
       - in: header
         name: Authorization
         type: string
@@ -516,6 +529,17 @@ def list_docs(dataset_id, tenant_id):
     else:
         desc = True
     docs, tol = DocumentService.get_list(dataset_id, page, page_size, orderby, desc, keywords, id, name)
+
+    create_time_from = int(request.args.get("create_time_from", 0))
+    create_time_to = int(request.args.get("create_time_to", 0))
+
+    if create_time_from or create_time_to:
+        filtered_docs = []
+        for doc in docs:
+            doc_create_time = doc.get("create_time", 0)
+            if (create_time_from == 0 or doc_create_time >= create_time_from) and (create_time_to == 0 or doc_create_time <= create_time_to):
+                filtered_docs.append(doc)
+        docs = filtered_docs
 
     # rename key's name
     renamed_doc_list = []
