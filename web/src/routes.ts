@@ -343,6 +343,20 @@ const routes = [
     ],
   },
   {
+
+    // path: Routes.NewsCollector,
+    // // layout: false,
+    // component: '@/layouts/next',
+    // routes: [
+    //   {
+    //     path: Routes.NewsCollector,
+    //     component: '@/pages/news_collector',
+    //   },
+    // ],
+    path: Routes.NewsCollector,
+    // layout: false,
+    component: '@/pages/news_collector',
+
     path: '/user-setting',
     component: '@/pages/user-setting',
     layout: false,
@@ -382,6 +396,7 @@ const routes = [
         component: `@/pages${Routes.ProfileMcp}`,
       },
     ],
+
   },
 ];
 
