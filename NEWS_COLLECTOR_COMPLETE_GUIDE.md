@@ -470,25 +470,36 @@ NEWS_COLLECTOR_CONFIG = {
         "content_selector": ".content"
     }
 }
-```
 
 **响应示例**:
-```json
 {
     "code": 0,
-    "message": "success",
     "data": {
         "source": {
-            "id": "source_12345",
-            "name": "科技新闻源",
-            "url": "https://tech.example.com",
+            "create_date": null,
+            "create_time": null,
+            "fetch_config": {
+                "author_selector": "span.author, div.ly.laiyuantext",
+                "content_selector": "div.article-content, div.TRS_Editor, div.article-box",
+                "link_selector": "div.nav a[href], div.main a[href], div.news-left a[href]",
+                "publication_time_selector": "span.date, span.times, div.time",
+                "title_selector": "div.titles, h1, h2.article_title"
+            },
+            "id": "ae649cb686df11f0a4b055ea514b9194",
+            "last_fetch_time": null,
+            "name": "国家发展和改革委员会",
+            "remark": "国家发改委官网，包含政策文件等",
             "status": "active",
-            "create_time": "2024-01-15 10:30:00",
-            "fetch_config": {...}
+            "tenant_id": "657ab49e66ce11f08eec93540bd02d91",
+            "total_articles": 0,
+            "update_date": null,
+            "update_time": null,
+            "url": "https://www.ndrc.gov.cn",
+            "user_id": "657ab49e66ce11f08eec93540bd02d91"
         }
-    }
+    },
+    "message": "success"
 }
-```
 
 ##### 获取新闻源列表 `GET /sources`
 
@@ -623,19 +634,38 @@ NEWS_COLLECTOR_CONFIG = {
 ```
 
 ##### 执行任务 `POST /tasks/{id}/execute`
+POST http://localhost:9380/api/v1/news_collector/crawl_from_post
+{
+  "depth": 2,
+  "max_pages_per_source": 100,
+  "sources": [
+    {
+      "url": "https://www.nea.gov.cn",
+      "link_selector": "div.news_area a[href], div.middle_box a[href], div.content a[href], div.main-colum a[href], div.online-colum a[href]",
+      "title_selector": "h2.article_title, span.title, h1, div.titles",
+      "content_selector": "div.article-content, div.TRS_Editor, div.article-box, p.te",
+      "publication_time_selector": "span.date, span.times, div.time",
+      "author_selector": "span.author, div.ly.laiyuantext"
+    },
+    {
+      "url": "https://www.ndrc.gov.cn",
+      "link_selector": "div.nav a[href], div.main a[href], div.news-left a[href], div.news-right a[href], div.xxgk-left a[href], div.dating-right a[href], div.data-left a[href], div.data-right a[href], div.hudong-left a[href], div.hudong-right a[href]",
+      "title_selector": "h2.article_title, span.title, h1, div.titles",
+      "content_selector": "div.article-content, div.TRS_Editor, div.article-box, p.te",
+      "publication_time_selector": "span.date, span.times, div.time",
+      "author_selector": "span.author, div.ly.laiyuantext"
+    }
+  ]
+}
 
 **响应示例**:
-```json
 {
     "code": 0,
-    "message": "success",
     "data": {
-        "execution_id": "exec_xyz789",
-        "status": "running",
-        "message": "任务已开始执行"
-    }
+        "message": "已成功启动后台即时抓取任务，共处理 2 个新闻源。"
+    },
+    "message": "success"
 }
-```
 
 #### 4.4.3 内容管理
 

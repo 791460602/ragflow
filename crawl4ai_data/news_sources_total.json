@@ -1,0 +1,18 @@
+[
+  {
+    "url": "https://www.nea.gov.cn",
+    "link_selector": "div.news_area a[href], div.middle_box a[href], div.content a[href], div.main-colum a[href], div.online-colum a[href]",
+    "title_selector": "h2.article_title, span.title, h1, div.titles",
+    "content_selector": "div.article-content, div.TRS_Editor, div.article-box, p.te",
+    "publication_time_selector": "span.date, span.times, div.time",
+    "author_selector": "span.author, div.ly.laiyuantext"
+  },
+  {
+    "url": "https://www.ndrc.gov.cn",
+    "link_selector": "div.nav a[href], div.main a[href], div.news-left a[href], div.news-right a[href], div.xxgk-left a[href], div.dating-right a[href], div.data-left a[href], div.data-right a[href], div.hudong-left a[href], div.hudong-right a[href]",
+    "title_selector": "h2.article_title, span.title, h1, div.titles",
+    "content_selector": "div.article-content, div.TRS_Editor, div.article-box, p.te",
+    "publication_time_selector": "span.date, span.times, div.time",
+    "author_selector": "span.author, div.ly.laiyuantext"
+  }
+]

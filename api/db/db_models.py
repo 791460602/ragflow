@@ -983,7 +983,13 @@ class NewsContent(DataBaseModel):
     tenant_id = CharField(max_length=32, null=False, help_text="租户ID", index=True)
     
     # 新闻元数据（不重复存储内容）
-    original_url = TextField(null=False, help_text="原文URL")
+    # 修改: 增加 unique=True 约束，从数据库层面防止重复
+    original_url = TextField(null=False, help_text="原文URL", unique=True)
+    
+    # 新增: title 和 content 字段，用于存储爬虫直接提取的内容
+    title = TextField(null=False, help_text="新闻标题")
+    content = LongTextField(null=True, help_text="新闻正文内容")
+    
     author = CharField(max_length=128, null=True, help_text="作者")
     publish_time = BigIntegerField(null=True, help_text="发布时间戳", index=True)
     fetch_time = BigIntegerField(null=False, help_text="抓取时间戳", index=True)

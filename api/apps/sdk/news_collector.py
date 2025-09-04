@@ -32,6 +32,156 @@ from playhouse.shortcuts import model_to_dict
 import shutil
 import traceback
 
+# --- 新增的导入，用于实现高级抓取功能 ---
+import threading
+import asyncio
+from urllib.parse import urljoin, urlparse
+from bs4 import BeautifulSoup
+from crawl4ai import AsyncWebCrawler # 直接从库导入
+import json # 新增: 用于写入JSON文件
+import hashlib # 新增: 用于哈希去重
+import re      # 新增: 用于清理文件名
+
+
+# =================================================================================
+# --- 新增/重写: 内部库调用方式的爬虫 (基于 advanced_crawler.py) ---
+# =================================================================================
+class LibraryCrawler:
+    """
+    一个封装了 crawl4ai 库调用逻辑的内部爬虫类。
+    它负责执行递归抓取并返回结构化数据，但不直接与数据库交互。
+    """
+    async def recursive_crawl(self, start_url: str, depth: int, max_pages: int, selectors: dict):
+        crawled_data = []
+        # 使用 async with 来管理 crawler 的生命周期
+        async with AsyncWebCrawler() as crawler:
+            visited_urls = set()
+            urls_to_visit = [(start_url, 0)]
+
+            while urls_to_visit and len(crawled_data) < max_pages:
+                current_url, current_depth = urls_to_visit.pop(0)
+                if current_url in visited_urls:
+                    continue
+
+                print(f"\n[LibraryCrawler] 正在抓取: {current_url} (深度: {current_depth})")
+                visited_urls.add(current_url)
+
+                try:
+                    result = await crawler.arun(url=current_url)
+
+                    if not result.success or not result.html:
+                        print(f"[LibraryCrawler] 警告: 未能获取HTML内容，跳过页面解析。")
+                        continue
+                    
+                    soup = BeautifulSoup(result.html, 'html.parser')
+                    
+                    title_tag = soup.select_one(selectors.get("title_selector"))
+                    content_tag = soup.select_one(selectors.get("content_selector"))
+                    author_tag = soup.select_one(selectors.get("author_selector"))
+                    time_tag = soup.select_one(selectors.get("publication_time_selector"))
+
+                    page_data = {
+                        "url": current_url,
+                        "title": title_tag.get_text(strip=True) if title_tag else result.markdown.split('\n')[0].strip('# '),
+                        "content": content_tag.get_text(strip=True) if content_tag else result.markdown,
+                        "author": author_tag.get_text(strip=True) if author_tag else None,
+                        "publication_time": time_tag.get_text(strip=True) if time_tag else None,
+                    }
+                    crawled_data.append(page_data)
+                    print(f"[LibraryCrawler] 成功解析页面: {page_data['title']}")
+
+                    if current_depth < depth:
+                        link_selector = selectors.get("link_selector", "a[href]")
+                        for link_tag in soup.select(link_selector):
+                            href = link_tag.get('href')
+                            if href and not href.startswith(('javascript:', '#')):
+                                absolute_link = urljoin(current_url, href)
+                                if urlparse(absolute_link).netloc == urlparse(start_url).netloc and absolute_link not in visited_urls:
+                                    urls_to_visit.append((absolute_link, current_depth + 1))
+                except Exception as e:
+                    print(f"[LibraryCrawler] 错误: 处理 {current_url} 时发生错误: {e}")
+        
+        return crawled_data
+# =================================================================================
+# --- 新增: 结构性调整后的新功能 ---
+# =================================================================================
+
+def _sanitize_filename(name: str) -> str:
+    """
+    清理字符串，使其成为一个合法的文件名。
+    """
+    # 移除路径相关的字符和大多数标点符号
+    name = re.sub(r'[\\/*?:"<>|]', "", name)
+    # 将多个空格替换为单个下划线
+    name = re.sub(r'\s+', '_', name)
+    # 限制文件名长度，避免过长
+    return name[:100]
+
+async def _async_crawl_from_post_worker(sources: list, depth: int, max_pages: int):
+    """
+    异步任务核心：接收一个源列表和控制参数，抓取它们，并将结果存为单独的JSON文件。
+    """
+    print(f"[即时任务] 开始处理 {len(sources)} 个新闻源... (深度: {depth}, 每源最大页数: {max_pages})")
+
+    content_hashes = set()
+    crawler = LibraryCrawler()
+
+    # for 循环语句在这里开始
+    for i, source in enumerate(sources):
+        # 下面的所有代码都必须相对于 for 语句进行缩进
+        source_name = source.get('url', f'源_{i+1}')
+        start_url = source.get('url')
+        selectors = source
+
+        print(f"\n[即时任务] 正在处理第 {i+1}/{len(sources)} 个源: {source_name}")
+
+        if not start_url or 'link_selector' not in selectors:
+            print(f"[即时任务] 跳过源 {source_name}，因为它缺少 url 或 link_selector。")
+            continue
+
+        try:
+            crawled_results = await crawler.recursive_crawl(
+                start_url=start_url,
+                depth=depth,
+                max_pages=max_pages,
+                selectors=selectors
+            )
+
+            for page_data in crawled_results:
+                content = page_data.get("content")
+                if not content:
+                    continue
+
+                content_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
+                if content_hash in content_hashes:
+                    print(f"[去重] 跳过重复内容页面: {page_data.get('title')}")
+                    continue
+                content_hashes.add(content_hash)
+
+                base_dir = "crawl4ai_data"
+                site_domain = urlparse(start_url).netloc
+                page_title = _sanitize_filename(page_data.get('title', 'untitled'))
+
+                output_dir = os.path.join(base_dir, site_domain)
+                output_file = os.path.join(output_dir, f"{page_title}.json")
+
+                os.makedirs(output_dir, exist_ok=True)
+
+                with open(output_file, 'w', encoding='utf-8') as f:
+                    json.dump(page_data, f, ensure_ascii=False, indent=2)
+
+                print(f"[文件存储] 成功保存页面: {output_file}")
+
+        except Exception as e:
+            print(f"[即时任务] 处理源 {source_name} 时发生严重错误: {e}")
+            traceback.print_exc()
+
+    print(f"\n[即时任务] 所有新闻源处理完毕。")
+
+def _background_crawl_from_post_wrapper(sources: list, depth: int, max_pages: int):
+    """同步的包装函数，在线程中启动asyncio事件循环。"""
+    # 修改: 接收并传递 depth 和 max_pages
+    asyncio.run(_async_crawl_from_post_worker(sources, depth, max_pages))
 
 # ========== 爬虫核心框架 ==========
 
@@ -130,35 +280,36 @@ class DemoCrawler(BaseCrawler):
             result.add_error(f"演示爬虫执行失败: {str(e)}")
         
         return result
+  
 
 class CrawlerFactory:
     """爬虫工厂"""
+    # 修改: 移除了旧的 "crawl4ai"
     _crawlers = {
         "demo": DemoCrawler
     }
     
     @classmethod
     def create_crawler(cls, crawler_type: str, config: dict = None):
-        """创建爬虫实例"""
         if crawler_type not in cls._crawlers:
             raise ValueError(f"不支持的爬虫类型: {crawler_type}")
-        
         return cls._crawlers[crawler_type](config)
     
     @classmethod
     def get_available_crawlers(cls):
-        """获取可用爬虫列表"""
+        # 修改: 移除了旧的 "crawl4ai" 的描述
         return [
-            {
-                "type": "demo",
-                "name": "Demo",
-                "description": "演示爬虫 - 生成示例新闻数据"
-            }
+            { "type": "demo", "name": "Demo", "description": "演示爬虫 - 生成示例新闻数据" }
         ]
 
-def crawl_news(sources: list, crawler_type: str = "demo", max_articles: int = 10) -> CrawlerResult:
-    """便捷的爬虫调用函数"""
-    crawler = CrawlerFactory.create_crawler(crawler_type)
+def crawl_news(sources: list, crawler_type: str = "demo", max_articles: int = 10, crawler_config: dict = None) -> CrawlerResult:
+    """
+    便捷的爬虫调用函数
+    修改: 增加 crawler_config 参数，以传递给爬虫实例
+    """
+    # 注意: 这个函数现在变得有些冗余，因为 crawl_multiple_sources 也能完成任务
+    # 但为了保持向后兼容和便捷性，我们保留它
+    crawler = CrawlerFactory.create_crawler(crawler_type, crawler_config)
     return crawler.crawl_multiple_sources(sources, max_articles)
 
 class NewsUploader:
@@ -177,18 +328,18 @@ class NewsUploader:
             }
         
         try:
-            # 这里集成upload_folder_with_parse.py的逻辑
-            # 将文章转换为文件并上传到RAGFlow
+            # 这里应集成真实的RAGFlow文件上传API逻辑
+            # 当前为模拟逻辑
             uploaded_files = []
             
             for article in crawler_result.articles:
-                # 生成文件内容
                 content = self._article_to_markdown(article)
                 
-                # 这里应该调用RAGFlow的文件上传API
-                # 暂时返回示例结果
+                # 模拟文件名清理
+                safe_title = "".join(c for c in article.get('title', 'untitled') if c.isalnum() or c in (' ', '-', '_')).strip()
+                
                 file_info = {
-                    "name": f"{article['title']}.md",
+                    "name": f"{safe_title}.md",
                     "id": get_uuid(),
                     "size": len(content.encode('utf-8'))
                 }
@@ -231,6 +382,7 @@ class NewsUploader:
         return content
 
 
+
 # ========== 工具函数 ==========
 
 def _article_to_markdown(article: dict) -> str:
@@ -255,7 +407,6 @@ def _article_to_markdown(article: dict) -> str:
     
     return content
 
-
 # ========== 爬虫相关API ==========
 
 @manager.route('/news_collector/crawl', methods=['POST'])  # noqa: F821
@@ -270,10 +421,18 @@ def crawl_news_api(tenant_id):
             {
                 "name": "新闻源名称",
                 "url": "https://example.com",
-                "config": {}
+                "config": {
+                    "crawler_type": "crawl4ai",
+                    "category": "科技",
+                    "crawler_config": {
+                        "base_url": "http://localhost:11235",
+                        "api_token": "your-token-if-any",
+                        "delay": 1.5
+                    }
+                }
             }
         ],
-        "crawler_type": "demo",
+        "crawler_type": "demo", // 全局默认爬虫
         "max_articles": 10,
         "save_to_disk": true,
         "output_dir": "/tmp/news_output"
@@ -282,14 +441,19 @@ def crawl_news_api(tenant_id):
     try:
         req = request.get_json()
         sources_config = req.get('sources', [])
-        crawler_type = req.get('crawler_type', 'demo')
+        # 全局爬虫类型和配置
+        global_crawler_type = req.get('crawler_type', 'demo')
+        global_crawler_config = req.get('crawler_config', {})
         max_articles = req.get('max_articles', 10)
         save_to_disk = req.get('save_to_disk', False)
         output_dir = req.get('output_dir')
         
-        # 转换源配置
         sources = []
         for source_config in sources_config:
+            # 源可以覆盖全局爬虫类型
+            source_crawler_type = source_config.get('config', {}).get('crawler_type', global_crawler_type)
+            source_config.setdefault('config', {}).setdefault('crawler_type', source_crawler_type)
+
             source = NewsSource(
                 name=source_config.get('name', ''),
                 url=source_config.get('url', ''),
@@ -297,35 +461,27 @@ def crawl_news_api(tenant_id):
             )
             sources.append(source)
         
-        # 执行爬取
-        crawler_result = crawl_news(sources, crawler_type, max_articles)
+        # 使用工厂创建一个基础爬虫实例，它内部会处理不同类型的源
+        # 这里的 global_crawler_type 仅作为没有指定类型的源的默认值
+        crawler = CrawlerFactory.create_crawler(global_crawler_type, global_crawler_config)
+        crawler_result = crawler.crawl_multiple_sources(sources, max_articles)
         
-        # 生成爬取ID
         crawl_id = get_uuid()
         
-        # 如果需要保存到磁盘
         saved_files = []
         if save_to_disk and crawler_result.articles:
             if not output_dir:
                 output_dir = os.path.join(tempfile.gettempdir(), f"news_crawl_{crawl_id[:8]}")
-            
             os.makedirs(output_dir, exist_ok=True)
             
             for i, article in enumerate(crawler_result.articles):
                 filename = f"{article.get('title', f'article_{i}')}.md"
                 safe_filename = "".join(c for c in filename if c.isalnum() or c in (' ', '-', '_', '.', '【', '】')).strip()
                 filepath = os.path.join(output_dir, safe_filename)
-                
                 content = _article_to_markdown(article)
-                
                 with open(filepath, 'w', encoding='utf-8') as f:
                     f.write(content)
-                
-                saved_files.append({
-                    "filename": safe_filename,
-                    "filepath": filepath,
-                    "size": len(content.encode('utf-8'))
-                })
+                saved_files.append({"filename": safe_filename, "filepath": filepath})
         
         return get_json_result(data={
             "crawl_id": crawl_id,
@@ -840,4 +996,36 @@ def get_news_statistics(tenant_id):
         })
         
     except Exception as e:
+        return server_error_response(e)
+    
+@manager.route('/news_collector/crawl_from_post', methods=['POST'])
+@token_required
+def crawl_from_post_api(tenant_id):
+    """
+    接收一个包含新闻源配置列表和控制参数的对象，并为它们启动一个即时的后台抓取任务。
+    """
+    req_data = request.get_json()
+    
+    # 修改: 解析新的请求体结构
+    sources_to_crawl = req_data.get("sources")
+    depth = int(req_data.get("depth", 2)) # 从请求中获取depth，默认值为2
+    max_pages_per_source = int(req_data.get("max_pages_per_source", 50)) # 从请求中获取max_pages，默认值为50
+
+    if not isinstance(sources_to_crawl, list) or not sources_to_crawl:
+        return get_json_result(code=400, message="请求体必须包含一个名为 'sources' 的非空JSON数组。")
+    
+    try:
+        # 修改: 将新的参数传递给后台线程
+        thread = threading.Thread(
+            target=_background_crawl_from_post_wrapper,
+            args=(sources_to_crawl, depth, max_pages_per_source)
+        )
+        thread.start()
+        
+        return get_json_result(data={
+            "message": f"已成功启动后台即时抓取任务，共处理 {len(sources_to_crawl)} 个新闻源。"
+        })
+        
+    except Exception as e:
+        traceback.print_exc()
         return server_error_response(e)

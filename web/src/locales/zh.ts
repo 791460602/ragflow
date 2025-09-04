@@ -804,7 +804,7 @@ General：实体和关系提取提示来自 GitHub - microsoft/graphrag：基于
       to: '下一步',
       msg: '消息',
       msgTip: '输出上游组件的变量内容或者自己输入的文本。',
-      messagePlaceholder: '请输入您的消息内容，使用'/'快速插入变量。',
+      messagePlaceholder: '请输入您的消息内容，使用' / '快速插入变量。',
       messageMsg: '请输入消息或删除此字段。',
       addField: '新增字段',
       addMessage: '新增消息',
