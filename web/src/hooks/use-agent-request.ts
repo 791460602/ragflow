@@ -1,13 +1,23 @@
 import { FileUploadProps } from '@/components/file-upload';
 import message from '@/components/ui/message';
 import { AgentGlobals } from '@/constants/agent';
-import { ITraceData } from '@/interfaces/database/agent';
-import { DSL, IFlow, IFlowTemplate } from '@/interfaces/database/flow';
+import {
+  DSL,
+  IAgentLogsRequest,
+  IAgentLogsResponse,
+  IFlow,
+  IFlowTemplate,
+  ITraceData,
+} from '@/interfaces/database/agent';
 import { IDebugSingleRequestBody } from '@/interfaces/request/agent';
 import i18n from '@/locales/config';
 import { BeginId } from '@/pages/agent/constant';
+import { IInputs } from '@/pages/agent/interface';
 import { useGetSharedChatSearchParams } from '@/pages/chat/shared-hooks';
-import agentService from '@/services/agent-service';
+import agentService, {
+  fetchAgentLogsByCanvasId,
+  fetchTrace,
+} from '@/services/agent-service';
 import api from '@/utils/api';
 import { buildMessageListWithUuid } from '@/utils/chat';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -15,7 +25,7 @@ import { useDebounce } from 'ahooks';
 import { get, set } from 'lodash';
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useParams } from 'umi';
+import { useParams, useSearchParams } from 'umi';
 import { v4 as uuid } from 'uuid';
 import {
   useGetPaginationWithRouter,
@@ -39,6 +49,8 @@ export const enum AgentApiAction {
   FetchVersionList = 'fetchVersionList',
   FetchVersion = 'fetchVersion',
   FetchAgentAvatar = 'fetchAgentAvatar',
+  FetchExternalAgentInputs = 'fetchExternalAgentInputs',
+  SetAgentSetting = 'setAgentSetting',
 }
 
 export const EmptyDsl = {
@@ -112,7 +124,7 @@ export const useFetchAgentListByPage = () => {
   const debouncedSearchString = useDebounce(searchString, { wait: 500 });
 
   const { data, isFetching: loading } = useQuery<{
-    kbs: IFlow[];
+    canvas: IFlow[];
     total: number;
   }>({
     queryKey: [
@@ -122,7 +134,7 @@ export const useFetchAgentListByPage = () => {
         ...pagination,
       },
     ],
-    initialData: { kbs: [], total: 0 },
+    initialData: { canvas: [], total: 0 },
     gcTime: 0,
     queryFn: async () => {
       const { data } = await agentService.listCanvasTeam(
@@ -136,7 +148,7 @@ export const useFetchAgentListByPage = () => {
         true,
       );
 
-      return data?.data ?? [];
+      return data?.data;
     },
   });
 
@@ -149,7 +161,7 @@ export const useFetchAgentListByPage = () => {
   );
 
   return {
-    data: data.kbs,
+    data: data.canvas,
     loading,
     searchString,
     handleInputChange: onInputChange,
@@ -257,7 +269,7 @@ export const useResetAgent = () => {
   return { data, loading, resetAgent: mutateAsync };
 };
 
-export const useSetAgent = () => {
+export const useSetAgent = (showMessage: boolean = true) => {
   const queryClient = useQueryClient();
   const {
     data,
@@ -273,9 +285,11 @@ export const useSetAgent = () => {
     }) => {
       const { data = {} } = await agentService.setCanvas(params);
       if (data.code === 0) {
-        message.success(
-          i18n.t(`message.${params?.id ? 'modified' : 'created'}`),
-        );
+        if (showMessage) {
+          message.success(
+            i18n.t(`message.${params?.id ? 'modified' : 'created'}`),
+          );
+        }
         queryClient.invalidateQueries({
           queryKey: [AgentApiAction.FetchAgentList],
         });
@@ -290,6 +304,9 @@ export const useSetAgent = () => {
 // Only one file can be uploaded at a time
 export const useUploadCanvasFile = () => {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
+  const shared_id = searchParams.get('shared_id');
+  const canvasId = id || shared_id;
   const {
     data,
     isPending: loading,
@@ -307,7 +324,7 @@ export const useUploadCanvasFile = () => {
         }
 
         const { data } = await agentService.uploadCanvasFile(
-          { url: api.uploadAgentFile(id), data: nextBody },
+          { url: api.uploadAgentFile(canvasId as string), data: nextBody },
           true,
         );
         if (data?.code === 0) {
@@ -354,16 +371,7 @@ export const useUploadCanvasFileWithProgress = (
           {
             url: api.uploadAgentFile(identifier || id),
             data: formData,
-            onUploadProgress: ({
-              loaded,
-              total,
-              progress,
-              bytes,
-              estimated,
-              rate,
-              upload,
-              lengthComputable,
-            }) => {
+            onUploadProgress: ({ progress }) => {
               files.forEach((file) => {
                 onProgress(file, (progress || 0) * 100);
               });
@@ -382,7 +390,7 @@ export const useUploadCanvasFileWithProgress = (
         files.forEach((file) => {
           onError(file, error as Error);
         });
-        message.error('error', error?.message);
+        message.error(error?.message);
       }
     },
   });
@@ -390,8 +398,12 @@ export const useUploadCanvasFileWithProgress = (
   return { data, loading, uploadCanvasFile: mutateAsync };
 };
 
-export const useFetchMessageTrace = () => {
+export const useFetchMessageTrace = (
+  isStopFetchTrace: boolean,
+  canvasId?: string,
+) => {
   const { id } = useParams();
+  const queryId = id || canvasId;
   const [messageId, setMessageId] = useState('');
 
   const {
@@ -399,16 +411,16 @@ export const useFetchMessageTrace = () => {
     isFetching: loading,
     refetch,
   } = useQuery<ITraceData[]>({
-    queryKey: [AgentApiAction.Trace, id, messageId],
+    queryKey: [AgentApiAction.Trace, queryId, messageId],
     refetchOnReconnect: false,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
     gcTime: 0,
-    enabled: !!id && !!messageId,
-    refetchInterval: 3000,
+    enabled: !!queryId && !!messageId,
+    refetchInterval: !isStopFetchTrace ? 3000 : false,
     queryFn: async () => {
-      const { data } = await agentService.trace({
-        canvas_id: id,
+      const { data } = await fetchTrace({
+        canvas_id: queryId as string,
         message_id: messageId,
       });
 
@@ -553,4 +565,75 @@ export const useFetchAgentAvatar = (): {
   });
 
   return { data, loading, refetch };
+};
+
+export const useFetchAgentLog = (searchParams: IAgentLogsRequest) => {
+  const { id } = useParams();
+  const { data, isFetching: loading } = useQuery<IAgentLogsResponse>({
+    queryKey: ['fetchAgentLog', id, searchParams],
+    initialData: {} as IAgentLogsResponse,
+    gcTime: 0,
+    queryFn: async () => {
+      console.log('useFetchAgentLog', searchParams);
+      const { data } = await fetchAgentLogsByCanvasId(id as string, {
+        ...searchParams,
+      });
+
+      return data?.data ?? [];
+    },
+  });
+
+  return { data, loading };
+};
+
+export const useFetchExternalAgentInputs = () => {
+  const { sharedId } = useGetSharedChatSearchParams();
+
+  const {
+    data,
+    isFetching: loading,
+    refetch,
+  } = useQuery<IInputs>({
+    queryKey: [AgentApiAction.FetchExternalAgentInputs],
+    initialData: {} as IInputs,
+    refetchOnReconnect: false,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    gcTime: 0,
+    enabled: !!sharedId,
+    queryFn: async () => {
+      const { data } = await agentService.fetchExternalAgentInputs(sharedId!);
+
+      return data?.data ?? {};
+    },
+  });
+
+  return { data, loading, refetch };
+};
+
+export const useSetAgentSetting = () => {
+  const { id } = useParams();
+  const queryClient = useQueryClient();
+
+  const {
+    data,
+    isPending: loading,
+    mutateAsync,
+  } = useMutation({
+    mutationKey: [AgentApiAction.SetAgentSetting],
+    mutationFn: async (params: any) => {
+      const ret = await agentService.settingCanvas({ id, ...params });
+      if (ret?.data?.code === 0) {
+        message.success('success');
+        queryClient.invalidateQueries({
+          queryKey: [AgentApiAction.FetchAgentDetail],
+        });
+      } else {
+        message.error(ret?.data?.data);
+      }
+      return ret?.data?.code;
+    },
+  });
+
+  return { data, loading, setAgentSetting: mutateAsync };
 };

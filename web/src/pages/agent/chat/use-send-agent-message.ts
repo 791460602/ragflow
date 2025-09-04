@@ -18,13 +18,23 @@ import i18n from '@/locales/config';
 import api from '@/utils/api';
 import { get } from 'lodash';
 import trim from 'lodash/trim';
-import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useParams } from 'umi';
 import { v4 as uuid } from 'uuid';
 import { BeginId } from '../constant';
 import { AgentChatLogContext } from '../context';
 import { transferInputsArrayToObject } from '../form/begin-form/use-watch-change';
-import { useSelectBeginNodeDataInputs } from '../hooks/use-get-begin-query';
+import {
+  useIsTaskMode,
+  useSelectBeginNodeDataInputs,
+} from '../hooks/use-get-begin-query';
 import { BeginQuery } from '../interface';
 import useGraphStore from '../store';
 import { receiveMessageError } from '../utils';
@@ -152,49 +162,88 @@ export function useSetUploadResponseData() {
   const [uploadResponseList, setUploadResponseList] = useState<
     UploadResponseDataType[]
   >([]);
+  const [fileList, setFileList] = useState<File[]>([]);
 
-  const append = useCallback((data: UploadResponseDataType) => {
+  const append = useCallback((data: UploadResponseDataType, files: File[]) => {
     setUploadResponseList((prev) => [...prev, data]);
+    setFileList((pre) => [...pre, ...files]);
   }, []);
 
   const clear = useCallback(() => {
     setUploadResponseList([]);
+    setFileList([]);
   }, []);
 
   return {
     uploadResponseList,
+    fileList,
     setUploadResponseList,
     appendUploadResponseList: append,
     clearUploadResponseList: clear,
   };
 }
 
-export const useSendAgentMessage = (url?: string) => {
+export const buildRequestBody = (value: string = '') => {
+  const id = uuid();
+  const msgBody = {
+    id,
+    content: value.trim(),
+    role: MessageType.User,
+  };
+
+  return msgBody;
+};
+
+export const useSendAgentMessage = (
+  url?: string,
+  addEventList?: (data: IEventList, messageId: string) => void,
+  beginParams?: any[],
+  isShared?: boolean,
+) => {
   const { id: agentId } = useParams();
   const { handleInputChange, value, setValue } = useHandleMessageInputChange();
   const inputs = useSelectBeginNodeDataInputs();
-  const { send, answerList, done, stopOutputMessage } = useSendMessageBySSE(
-    url || api.runCanvas,
-  );
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const { send, answerList, done, stopOutputMessage, resetAnswerList } =
+    useSendMessageBySSE(url || api.runCanvas);
+  const messageId = useMemo(() => {
+    return answerList[0]?.message_id;
+  }, [answerList]);
+
+  const isTaskMode = useIsTaskMode();
+
+  // const { refetch } = useFetchAgent(); // This will cause the shared page to also send a request
+
   const { findReferenceByMessageId } = useFindMessageReference(answerList);
   const prologue = useGetBeginNodePrologue();
   const {
     derivedMessages,
-    ref,
+    scrollRef,
+    messageContainerRef,
     removeLatestMessage,
     removeMessageById,
     addNewestOneQuestion,
     addNewestOneAnswer,
+    removeAllMessages,
+    scrollToBottom,
   } = useSelectDerivedMessages();
-  const { addEventList } = useContext(AgentChatLogContext);
+  const { addEventList: addEventListFun } = useContext(AgentChatLogContext);
   const {
     appendUploadResponseList,
     clearUploadResponseList,
     uploadResponseList,
+    fileList,
   } = useSetUploadResponseData();
 
   const sendMessage = useCallback(
-    async ({ message }: { message: Message; messages?: Message[] }) => {
+    async ({
+      message,
+      beginInputs,
+    }: {
+      message: Message;
+      messages?: Message[];
+      beginInputs?: BeginQuery[];
+    }) => {
       const params: Record<string, unknown> = {
         id: agentId,
       };
@@ -202,68 +251,113 @@ export const useSendAgentMessage = (url?: string) => {
       params.running_hint_text = i18n.t('flow.runningHintText', {
         defaultValue: 'is running...🕞',
       });
-      if (message.content) {
+      if (typeof message.content === 'string') {
         const query = inputs;
 
         params.query = message.content;
         // params.message_id = message.id;
-        params.inputs = transferInputsArrayToObject(query); // begin operator inputs
+        params.inputs = transferInputsArrayToObject(
+          beginInputs || beginParams || query,
+        ); // begin operator inputs
 
         params.files = uploadResponseList;
+
+        params.session_id = sessionId;
       }
-      const res = await send(params);
 
-      clearUploadResponseList();
+      try {
+        const res = await send(params);
 
-      if (receiveMessageError(res)) {
-        sonnerMessage.error(res?.data?.message);
+        clearUploadResponseList();
 
-        // cancel loading
-        setValue(message.content);
-        removeLatestMessage();
-      } else {
-        // refetch(); // pull the message list after sending the message successfully
+        if (receiveMessageError(res)) {
+          sonnerMessage.error(res?.data?.message);
+
+          // cancel loading
+          setValue(message.content);
+          removeLatestMessage();
+        } else {
+          // refetch(); // pull the message list after sending the message successfully
+        }
+      } catch (error) {
+        console.log('🚀 ~ useSendAgentMessage ~ error:', error);
       }
     },
     [
       agentId,
-      send,
       inputs,
+      beginParams,
       uploadResponseList,
+      sessionId,
+      send,
+      clearUploadResponseList,
       setValue,
       removeLatestMessage,
-      clearUploadResponseList,
     ],
   );
 
   const sendFormMessage = useCallback(
-    (body: { id?: string; inputs: Record<string, BeginQuery> }) => {
-      send(body);
+    async (body: { id?: string; inputs: Record<string, BeginQuery> }) => {
       addNewestOneQuestion({
         content: Object.entries(body.inputs)
           .map(([key, val]) => `${key}: ${val.value}`)
           .join('<br/>'),
         role: MessageType.User,
       });
+      await send({ ...body, session_id: sessionId });
+      // refetch();
     },
-    [addNewestOneQuestion, send],
+    [addNewestOneQuestion, send, sessionId],
   );
+
+  // reset session
+  const resetSession = useCallback(() => {
+    stopOutputMessage();
+    resetAnswerList();
+    setSessionId(null);
+    removeAllMessages();
+  }, [resetAnswerList, removeAllMessages, stopOutputMessage]);
 
   const handlePressEnter = useCallback(() => {
     if (trim(value) === '') return;
-    const id = uuid();
+    const msgBody = buildRequestBody(value);
     if (done) {
       setValue('');
       sendMessage({
-        message: { id, content: value.trim(), role: MessageType.User },
+        message: msgBody,
       });
     }
-    addNewestOneQuestion({
-      content: value,
-      id,
-      role: MessageType.User,
+    addNewestOneQuestion({ ...msgBody, files: fileList });
+    setTimeout(() => {
+      scrollToBottom();
+    }, 100);
+  }, [
+    value,
+    done,
+    addNewestOneQuestion,
+    fileList,
+    setValue,
+    sendMessage,
+    scrollToBottom,
+  ]);
+
+  const sendedTaskMessage = useRef<boolean>(false);
+
+  const sendMessageInTaskMode = useCallback(() => {
+    if (isShared || !isTaskMode || sendedTaskMessage.current) {
+      return;
+    }
+    const msgBody = buildRequestBody('');
+
+    sendMessage({
+      message: msgBody,
     });
-  }, [value, done, addNewestOneQuestion, setValue, sendMessage]);
+    sendedTaskMessage.current = true;
+  }, [isShared, isTaskMode, sendMessage]);
+
+  useEffect(() => {
+    sendMessageInTaskMode();
+  }, [sendMessageInTaskMode]);
 
   useEffect(() => {
     const { content, id } = findMessageFromList(answerList);
@@ -278,31 +372,53 @@ export const useSendAgentMessage = (url?: string) => {
   }, [answerList, addNewestOneAnswer]);
 
   useEffect(() => {
+    if (isTaskMode) {
+      return;
+    }
     if (prologue) {
       addNewestOneAnswer({
         answer: prologue,
       });
     }
-  }, [addNewestOneAnswer, agentId, prologue, send, sendFormMessage]);
+  }, [
+    addNewestOneAnswer,
+    agentId,
+    isTaskMode,
+    prologue,
+    send,
+    sendFormMessage,
+  ]);
 
   useEffect(() => {
     if (typeof addEventList === 'function') {
-      addEventList(answerList);
+      addEventList(answerList, messageId);
+    } else if (typeof addEventListFun === 'function') {
+      addEventListFun(answerList, messageId);
     }
-  }, [addEventList, answerList]);
+  }, [addEventList, answerList, addEventListFun, messageId]);
+
+  useEffect(() => {
+    if (answerList[0]?.session_id) {
+      setSessionId(answerList[0]?.session_id);
+    }
+  }, [answerList]);
 
   return {
     value,
     sendLoading: !done,
     derivedMessages,
-    ref,
+    scrollRef,
+    messageContainerRef,
     handlePressEnter,
     handleInputChange,
     removeMessageById,
     stopOutputMessage,
     send,
     sendFormMessage,
+    resetSession,
     findReferenceByMessageId,
     appendUploadResponseList,
+    addNewestOneAnswer,
+    sendMessage,
   };
 };

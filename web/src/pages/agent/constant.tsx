@@ -4,6 +4,7 @@ import {
 } from '@/components/similarity-slider';
 import {
   AgentGlobals,
+  AgentGlobalsSysQueryWithBrace,
   CodeTemplateStrMap,
   ProgrammingLanguage,
 } from '@/constants/agent';
@@ -20,6 +21,7 @@ import {
 import { ModelVariableType } from '@/constants/knowledge';
 import i18n from '@/locales/config';
 import { setInitialChatVariableEnabledFieldValue } from '@/utils/chat';
+import { t } from 'i18next';
 
 // DuckDuckGo's channel options
 export enum Channel {
@@ -48,8 +50,6 @@ export const BeginId = 'begin';
 export enum Operator {
   Begin = 'Begin',
   Retrieval = 'Retrieval',
-  Generate = 'Generate',
-  Answer = 'Answer',
   Categorize = 'Categorize',
   Message = 'Message',
   Relevant = 'Relevant',
@@ -78,7 +78,6 @@ export enum Operator {
   Note = 'Note',
   Crawler = 'Crawler',
   Invoke = 'Invoke',
-  Template = 'Template',
   Email = 'Email',
   Iteration = 'Iteration',
   IterationStart = 'IterationItem',
@@ -90,6 +89,7 @@ export enum Operator {
   TavilyExtract = 'TavilyExtract',
   UserFillUp = 'UserFillUp',
   StringTransform = 'StringTransform',
+  SearXNG = 'SearXNG',
 }
 
 export const SwitchLogicOperatorOptions = ['and', 'or'];
@@ -100,15 +100,12 @@ export const CommonOperatorList = Object.values(Operator).filter(
 
 export const AgentOperatorList = [
   Operator.Retrieval,
-  Operator.Generate,
-  Operator.Answer,
   Operator.Categorize,
   Operator.Message,
   Operator.RewriteQuestion,
   Operator.KeywordExtract,
   Operator.Switch,
   Operator.Concentrator,
-  Operator.Template,
   Operator.Iteration,
   Operator.WaitingDialogue,
   Operator.Note,
@@ -118,12 +115,6 @@ export const AgentOperatorList = [
 export const componentMenuList = [
   {
     name: Operator.Retrieval,
-  },
-  {
-    name: Operator.Generate,
-  },
-  {
-    name: Operator.Answer,
   },
   {
     name: Operator.Categorize,
@@ -143,9 +134,6 @@ export const componentMenuList = [
   },
   {
     name: Operator.Concentrator,
-  },
-  {
-    name: Operator.Template,
   },
   {
     name: Operator.Iteration,
@@ -225,6 +213,9 @@ export const componentMenuList = [
   {
     name: Operator.Email,
   },
+  {
+    name: Operator.SearXNG,
+  },
 ];
 
 export const SwitchOperatorOptions = [
@@ -257,7 +248,7 @@ const initialQueryBaseValues = {
 };
 
 export const initialRetrievalValues = {
-  query: AgentGlobals.SysQuery,
+  query: AgentGlobalsSysQueryWithBrace,
   top_n: 8,
   top_k: 1024,
   kb_ids: [],
@@ -277,7 +268,7 @@ export const initialRetrievalValues = {
 
 export const initialBeginValues = {
   mode: AgentDialogueMode.Conversational,
-  prologue: `Hi! I'm your assistant, what can I do for you?`,
+  prologue: `Hi! I'm your assistant. What can I do for you?`,
 };
 
 export const variableCheckBoxFieldMap = Object.keys(
@@ -341,7 +332,33 @@ export const initialKeywordExtractValues = {
 export const initialDuckValues = {
   top_n: 10,
   channel: Channel.Text,
-  ...initialQueryBaseValues,
+  query: AgentGlobals.SysQuery,
+  outputs: {
+    formalized_content: {
+      value: '',
+      type: 'string',
+    },
+    json: {
+      value: [],
+      type: 'Array<Object>',
+    },
+  },
+};
+
+export const initialSearXNGValues = {
+  top_n: '10',
+  searxng_url: '',
+  query: AgentGlobals.SysQuery,
+  outputs: {
+    formalized_content: {
+      value: '',
+      type: 'string',
+    },
+    json: {
+      value: [],
+      type: 'Array<Object>',
+    },
+  },
 };
 
 export const initialBaiduValues = {
@@ -352,27 +369,56 @@ export const initialBaiduValues = {
 export const initialWikipediaValues = {
   top_n: 10,
   language: 'en',
-  ...initialQueryBaseValues,
+  query: AgentGlobals.SysQuery,
+  outputs: {
+    formalized_content: {
+      value: '',
+      type: 'string',
+    },
+  },
 };
 
 export const initialPubMedValues = {
-  top_n: 10,
+  top_n: 12,
   email: '',
-  ...initialQueryBaseValues,
+  query: AgentGlobals.SysQuery,
+  outputs: {
+    formalized_content: {
+      value: '',
+      type: 'string',
+    },
+  },
 };
 
 export const initialArXivValues = {
-  top_n: 10,
+  top_n: 12,
   sort_by: 'relevance',
-  ...initialQueryBaseValues,
+  query: AgentGlobals.SysQuery,
+  outputs: {
+    formalized_content: {
+      value: '',
+      type: 'string',
+    },
+  },
 };
 
 export const initialGoogleValues = {
-  top_n: 10,
-  api_key: 'YOUR_API_KEY (obtained from https://serpapi.com/manage-api-key)',
-  country: 'cn',
+  q: AgentGlobals.SysQuery,
+  start: 0,
+  num: 12,
+  api_key: '',
+  country: 'us',
   language: 'en',
-  ...initialQueryBaseValues,
+  outputs: {
+    formalized_content: {
+      value: '',
+      type: 'string',
+    },
+    json: {
+      value: [],
+      type: 'Array<Object>',
+    },
+  },
 };
 
 export const initialBingValues = {
@@ -386,10 +432,22 @@ export const initialBingValues = {
 };
 
 export const initialGoogleScholarValues = {
-  top_n: 5,
+  top_n: 12,
   sort_by: 'relevance',
   patents: true,
-  ...initialQueryBaseValues,
+  query: AgentGlobals.SysQuery,
+  year_low: undefined,
+  year_high: undefined,
+  outputs: {
+    formalized_content: {
+      value: '',
+      type: 'string',
+    },
+    json: {
+      value: [],
+      type: 'Array<Object>',
+    },
+  },
 };
 
 export const initialDeepLValues = {
@@ -399,7 +457,17 @@ export const initialDeepLValues = {
 
 export const initialGithubValues = {
   top_n: 5,
-  ...initialQueryBaseValues,
+  query: AgentGlobals.SysQuery,
+  outputs: {
+    formalized_content: {
+      value: '',
+      type: 'string',
+    },
+    json: {
+      value: [],
+      type: 'Array<Object>',
+    },
+  },
 };
 
 export const initialBaiduFanyiValues = {
@@ -426,6 +494,16 @@ export const initialExeSqlValues = {
   port: 3306,
   password: '',
   max_records: 1024,
+  outputs: {
+    formalized_content: {
+      value: '',
+      type: 'string',
+    },
+    json: {
+      value: [],
+      type: 'Array<Object>',
+    },
+  },
 };
 
 export const initialSwitchValues = {
@@ -446,19 +524,31 @@ export const initialSwitchValues = {
 export const initialWenCaiValues = {
   top_n: 20,
   query_type: 'stock',
-  ...initialQueryBaseValues,
+  query: AgentGlobals.SysQuery,
+  outputs: {
+    report: {
+      value: '',
+      type: 'string',
+    },
+  },
 };
 
 export const initialAkShareValues = { top_n: 10, ...initialQueryBaseValues };
 
 export const initialYahooFinanceValues = {
+  stock_code: '',
   info: true,
   history: false,
   financials: false,
   balance_sheet: false,
   cash_flow_statement: false,
   news: true,
-  ...initialQueryBaseValues,
+  outputs: {
+    report: {
+      value: '',
+      type: 'string',
+    },
+  },
 };
 
 export const initialJin10Values = {
@@ -489,7 +579,7 @@ export const initialCrawlerValues = {
 };
 
 export const initialInvokeValues = {
-  url: 'http://',
+  url: '',
   method: 'GET',
   timeout: 60,
   headers: `{
@@ -497,8 +587,15 @@ export const initialInvokeValues = {
   "Cache-Control": "no-cache",
   "Connection": "keep-alive"
 }`,
-  proxy: 'http://',
+  proxy: '',
   clean_html: false,
+  variables: [],
+  outputs: {
+    result: {
+      value: '',
+      type: 'string',
+    },
+  },
 };
 
 export const initialTemplateValues = {
@@ -508,7 +605,7 @@ export const initialTemplateValues = {
 
 export const initialEmailValues = {
   smtp_server: '',
-  smtp_port: 587,
+  smtp_port: 465,
   email: '',
   password: '',
   sender_name: '',
@@ -516,6 +613,12 @@ export const initialEmailValues = {
   cc_email: '',
   subject: '',
   content: '',
+  outputs: {
+    success: {
+      value: true,
+      type: 'boolean',
+    },
+  },
 };
 
 export const initialIterationValues = {
@@ -549,28 +652,29 @@ export const initialAgentValues = {
   ...initialLlmBaseValues,
   description: '',
   user_prompt: '',
-  sys_prompt: ``,
+  sys_prompt: t('flow.sysPromptDefultValue'),
   prompts: [{ role: PromptRole.User, content: `{${AgentGlobals.SysQuery}}` }],
   message_history_window_size: 12,
   max_retries: 3,
   delay_after_error: 1,
   visual_files_var: '',
-  max_rounds: 5,
-  exception_method: null,
-  exception_comment: '',
-  exception_goto: '',
+  max_rounds: 1,
+  exception_method: '',
+  exception_goto: [],
+  exception_default_value: '',
   tools: [],
   mcp: [],
+  cite: true,
   outputs: {
-    structured_output: {
-      // topic: {
-      //   type: 'string',
-      //   description:
-      //     'default:general. The category of the search.news is useful for retrieving real-time updates, particularly about politics, sports, and major current events covered by mainstream media sources. general is for broader, more general-purpose searches that may include a wide range of sources.',
-      //   enum: ['general', 'news'],
-      //   default: 'general',
-      // },
-    },
+    // structured_output: {
+    //   topic: {
+    //     type: 'string',
+    //     description:
+    //       'default:general. The category of the search.news is useful for retrieving real-time updates, particularly about politics, sports, and major current events covered by mainstream media sources. general is for broader, more general-purpose searches that may include a wide range of sources.',
+    //     enum: ['general', 'news'],
+    //     default: 'general',
+    //   },
+    // },
     content: {
       type: 'string',
       value: '',
@@ -691,30 +795,16 @@ export const CategorizeAnchorPointPositions = [
 // no connection lines are allowed between key and value
 export const RestrictedUpstreamMap = {
   [Operator.Begin]: [Operator.Relevant],
-  [Operator.Categorize]: [
-    Operator.Begin,
-    Operator.Categorize,
-    Operator.Answer,
-    Operator.Relevant,
-  ],
-  [Operator.Answer]: [
-    Operator.Begin,
-    Operator.Answer,
-    Operator.Message,
-    Operator.Relevant,
-  ],
+  [Operator.Categorize]: [Operator.Begin, Operator.Categorize],
   [Operator.Retrieval]: [Operator.Begin, Operator.Retrieval],
-  [Operator.Generate]: [Operator.Begin, Operator.Relevant],
   [Operator.Message]: [
     Operator.Begin,
     Operator.Message,
-    Operator.Generate,
     Operator.Retrieval,
     Operator.RewriteQuestion,
     Operator.Categorize,
-    Operator.Relevant,
   ],
-  [Operator.Relevant]: [Operator.Begin, Operator.Answer, Operator.Relevant],
+  [Operator.Relevant]: [Operator.Begin],
   [Operator.RewriteQuestion]: [
     Operator.Begin,
     Operator.Message,
@@ -738,6 +828,7 @@ export const RestrictedUpstreamMap = {
   [Operator.GitHub]: [Operator.Begin, Operator.Retrieval],
   [Operator.BaiduFanyi]: [Operator.Begin, Operator.Retrieval],
   [Operator.QWeather]: [Operator.Begin, Operator.Retrieval],
+  [Operator.SearXNG]: [Operator.Begin, Operator.Retrieval],
   [Operator.ExeSQL]: [Operator.Begin],
   [Operator.Switch]: [Operator.Begin],
   [Operator.WenCai]: [Operator.Begin],
@@ -749,7 +840,6 @@ export const RestrictedUpstreamMap = {
   [Operator.Crawler]: [Operator.Begin],
   [Operator.Note]: [],
   [Operator.Invoke]: [Operator.Begin],
-  [Operator.Template]: [Operator.Begin, Operator.Relevant],
   [Operator.Email]: [Operator.Begin],
   [Operator.Iteration]: [Operator.Begin],
   [Operator.IterationStart]: [Operator.Begin],
@@ -767,8 +857,6 @@ export const NodeMap = {
   [Operator.Begin]: 'beginNode',
   [Operator.Categorize]: 'categorizeNode',
   [Operator.Retrieval]: 'retrievalNode',
-  [Operator.Generate]: 'generateNode',
-  [Operator.Answer]: 'logicNode',
   [Operator.Message]: 'messageNode',
   [Operator.Relevant]: 'relevantNode',
   [Operator.RewriteQuestion]: 'rewriteNode',
@@ -785,6 +873,7 @@ export const NodeMap = {
   [Operator.GitHub]: 'ragNode',
   [Operator.BaiduFanyi]: 'ragNode',
   [Operator.QWeather]: 'ragNode',
+  [Operator.SearXNG]: 'ragNode',
   [Operator.ExeSQL]: 'ragNode',
   [Operator.Switch]: 'switchNode',
   [Operator.Concentrator]: 'logicNode',
@@ -795,9 +884,8 @@ export const NodeMap = {
   [Operator.TuShare]: 'ragNode',
   [Operator.Note]: 'noteNode',
   [Operator.Crawler]: 'ragNode',
-  [Operator.Invoke]: 'invokeNode',
-  [Operator.Template]: 'templateNode',
-  [Operator.Email]: 'emailNode',
+  [Operator.Invoke]: 'ragNode',
+  [Operator.Email]: 'ragNode',
   [Operator.Iteration]: 'group',
   [Operator.IterationStart]: 'iterationStartNode',
   [Operator.Code]: 'ragNode',
@@ -830,14 +918,13 @@ export const BeginQueryTypeIconMap = {
 
 export const NoDebugOperatorsList = [
   Operator.Begin,
-  Operator.Answer,
   Operator.Concentrator,
-  Operator.Template,
   Operator.Message,
   Operator.RewriteQuestion,
   Operator.Switch,
   Operator.Iteration,
   Operator.UserFillUp,
+  Operator.IterationStart,
 ];
 
 export enum NodeHandleId {
@@ -846,6 +933,7 @@ export enum NodeHandleId {
   Tool = 'tool',
   AgentTop = 'agentTop',
   AgentBottom = 'agentBottom',
+  AgentException = 'agentException',
 }
 
 export enum VariableType {
@@ -857,5 +945,4 @@ export enum VariableType {
 export enum AgentExceptionMethod {
   Comment = 'comment',
   Goto = 'goto',
-  Null = 'null',
 }

@@ -17,6 +17,7 @@ import asyncio
 import functools
 import json
 import logging
+import os
 import queue
 import random
 import threading
@@ -48,12 +49,37 @@ from werkzeug.http import HTTP_STATUS_CODES
 from api import settings
 from api.constants import REQUEST_MAX_WAIT_SEC, REQUEST_WAIT_SEC
 from api.db.db_models import APIToken
-from api.db.services.llm_service import LLMService, TenantLLMService
+from api.db.services.llm_service import LLMService
+from api.db.services.tenant_llm_service import TenantLLMService
 from api.utils import CustomJSONEncoder, get_uuid, json_dumps
 from rag.utils.mcp_tool_call_conn import MCPToolCallSession, close_multiple_mcp_toolcall_sessions
 
 requests.models.complexjson.dumps = functools.partial(json.dumps, cls=CustomJSONEncoder)
 
+def serialize_for_json(obj):
+    """
+    Recursively serialize objects to make them JSON serializable.
+    Handles ModelMetaclass and other non-serializable objects.
+    """
+    if hasattr(obj, '__dict__'):
+        # For objects with __dict__, try to serialize their attributes
+        try:
+            return {key: serialize_for_json(value) for key, value in obj.__dict__.items() 
+                   if not key.startswith('_')}
+        except (AttributeError, TypeError):
+            return str(obj)
+    elif hasattr(obj, '__name__'):
+        # For classes and metaclasses, return their name
+        return f"<{obj.__module__}.{obj.__name__}>" if hasattr(obj, '__module__') else f"<{obj.__name__}>"
+    elif isinstance(obj, (list, tuple)):
+        return [serialize_for_json(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {key: serialize_for_json(value) for key, value in obj.items()}
+    elif isinstance(obj, (str, int, float, bool)) or obj is None:
+        return obj
+    else:
+        # Fallback: convert to string representation
+        return str(obj)
 
 def request(**kwargs):
     sess = requests.Session()
@@ -126,7 +152,11 @@ def server_error_response(e):
     except BaseException:
         pass
     if len(e.args) > 1:
-        return get_json_result(code=settings.RetCode.EXCEPTION_ERROR, message=repr(e.args[0]), data=e.args[1])
+        try:
+            serialized_data = serialize_for_json(e.args[1])
+            return get_json_result(code= settings.RetCode.EXCEPTION_ERROR, message=repr(e.args[0]), data=serialized_data)
+        except Exception:
+            return get_json_result(code=settings.RetCode.EXCEPTION_ERROR, message=repr(e.args[0]), data=None)
     if repr(e).find("index_not_found_exception") >= 0:
         return get_json_result(code=settings.RetCode.EXCEPTION_ERROR, message="No chunk found, please upload file and parse it.")
 
@@ -352,7 +382,7 @@ def get_parser_config(chunk_method, parser_config):
     if not chunk_method:
         chunk_method = "naive"
 
-    # Define default configurations for each chunk method
+    # Define default configurations for each chunking method
     key_mapping = {
         "naive": {"chunk_token_num": 512, "delimiter": r"\n", "html4excel": False, "layout_recognize": "DeepDOC", "raptor": {"use_raptor": False}, "graphrag": {"use_graphrag": False}},
         "qa": {"raptor": {"use_raptor": False}, "graphrag": {"use_graphrag": False}},
@@ -402,8 +432,22 @@ def get_data_openai(
     finish_reason=None,
     object="chat.completion",
     param=None,
+    stream=False
 ):
     total_tokens = prompt_tokens + completion_tokens
+
+    if stream:
+        return {
+            "id": f"{id}",
+            "object": "chat.completion.chunk",
+            "model": model,
+            "choices": [{
+                "delta": {"content": content},
+                "finish_reason": finish_reason,
+                "index": 0,
+            }],
+        }
+
     return {
         "id": f"{id}",
         "object": object,
@@ -414,9 +458,21 @@ def get_data_openai(
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
             "total_tokens": total_tokens,
-            "completion_tokens_details": {"reasoning_tokens": 0, "accepted_prediction_tokens": 0, "rejected_prediction_tokens": 0},
+            "completion_tokens_details": {
+                "reasoning_tokens": 0,
+                "accepted_prediction_tokens": 0,
+                "rejected_prediction_tokens": 0,
+            },
         },
-        "choices": [{"message": {"role": "assistant", "content": content}, "logprobs": None, "finish_reason": finish_reason, "index": 0}],
+        "choices": [{
+            "message": {
+                "role": "assistant",
+                "content": content
+            },
+            "logprobs": None,
+            "finish_reason": finish_reason,
+            "index": 0,
+        }],
     }
 
 
@@ -640,7 +696,10 @@ def timeout(seconds: float | int = None, attempts: int = 2, *, exception: Option
 
             for a in range(attempts):
                 try:
-                    result = result_queue.get(timeout=seconds)
+                    if os.environ.get("ENABLE_TIMEOUT_ASSERTION"):
+                        result = result_queue.get(timeout=seconds)
+                    else:
+                        result = result_queue.get()
                     if isinstance(result, Exception):
                         raise result
                     return result
@@ -655,7 +714,10 @@ def timeout(seconds: float | int = None, attempts: int = 2, *, exception: Option
 
             for a in range(attempts):
                 try:
-                    with trio.fail_after(seconds):
+                    if os.environ.get("ENABLE_TIMEOUT_ASSERTION"):
+                        with trio.fail_after(seconds):
+                            return await func(*args, **kwargs)
+                    else:
                         return await func(*args, **kwargs)
                 except trio.TooSlowError:
                     if a < attempts - 1:
@@ -687,7 +749,13 @@ def timeout(seconds: float | int = None, attempts: int = 2, *, exception: Option
 
 
 async def is_strong_enough(chat_model, embedding_model):
-    @timeout(30, 2)
+    count = settings.STRONG_TEST_COUNT
+    if not chat_model or not embedding_model:
+        return
+    if isinstance(count, int) and count <= 0:
+        return
+
+    @timeout(60, 2)
     async def _is_strong_enough():
         nonlocal chat_model, embedding_model
         if embedding_model:
@@ -701,5 +769,5 @@ async def is_strong_enough(chat_model, embedding_model):
 
     # Pressure test for GraphRAG task
     async with trio.open_nursery() as nursery:
-        for _ in range(32):
+        for _ in range(count):
             nursery.start_soon(_is_strong_enough)

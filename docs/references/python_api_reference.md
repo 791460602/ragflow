@@ -5,7 +5,7 @@ slug: /python_api_reference
 
 # Python API
 
-A complete reference for RAGFlow's Python APIs. Before proceeding, please ensure you [have your RAGFlow API key ready for authentication](../guides/models/llm_api_key_setup.md).
+A complete reference for RAGFlow's Python APIs. Before proceeding, please ensure you [have your RAGFlow API key ready for authentication](https://ragflow.io/docs/dev/acquire_ragflow_api_key).
 
 :::tip NOTE
 Run the following command to download the Python SDK:
@@ -507,7 +507,16 @@ print(doc)
 ### List documents
 
 ```python
-Dataset.list_documents(id:str =None, keywords: str=None, page: int=1, page_size:int = 30, order_by:str = "create_time", desc: bool = True) -> list[Document]
+Dataset.list_documents(
+    id: str = None,
+    keywords: str = None,
+    page: int = 1,
+    page_size: int = 30,
+    order_by: str = "create_time",
+    desc: bool = True,
+    create_time_from: int = 0,
+    create_time_to: int = 0
+) -> list[Document]
 ```
 
 Lists documents in the current dataset.
@@ -540,6 +549,12 @@ The field by which documents should be sorted. Available options:
 ##### desc: `bool`
 
 Indicates whether the retrieved documents should be sorted in descending order. Defaults to `True`.
+
+##### create_time_from: `int`
+Unix timestamp for filtering documents created after this time. 0 means no filter. Defaults to 0.
+
+##### create_time_to: `int`
+Unix timestamp for filtering documents created before this time. 0 means no filter. Defaults to 0.
 
 #### Returns
 

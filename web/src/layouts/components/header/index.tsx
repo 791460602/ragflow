@@ -30,8 +30,12 @@ const RagHeader = () => {
       { path: '/knowledge', name: t('knowledgeBase'), icon: KnowledgeBaseIcon },
       { path: '/chat', name: t('chat'), icon: MessageOutlined },
       { path: '/search', name: t('search'), icon: SearchOutlined },
-      { path: '/flow', name: t('flow'), icon: GraphIcon },
-      { path: '/news_collector', name: t('newsCollector'), icon: NewspaperIcon }, // 新增
+      { path: '/agent-list', name: t('flow'), icon: GraphIcon },
+      {
+        path: '/news_collector',
+        name: t('newsCollector'),
+        icon: NewspaperIcon,
+      }, // 新增
       { path: '/file', name: t('fileManager'), icon: FileIcon },
     ],
     [t],

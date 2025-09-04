@@ -28,6 +28,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
+import { t } from 'i18next';
 import { RAGFlowSelectOptionType } from '../ui/select';
 import { Separator } from '../ui/separator';
 
@@ -111,12 +112,12 @@ export const SelectWithSearch = forwardRef<
           >
             {value ? (
               <span className="flex min-w-0 options-center gap-2">
-                <span className="text-lg leading-none truncate">
-                  {selectLabel}
-                </span>
+                <span className="leading-none truncate">{selectLabel}</span>
               </span>
             ) : (
-              <span className="text-muted-foreground">Select value</span>
+              <span className="text-muted-foreground">
+                {t('common.selectPlaceholder')}
+              </span>
             )}
             <div className="flex items-center justify-between">
               {value && allowClear && (
@@ -144,9 +145,9 @@ export const SelectWithSearch = forwardRef<
           align="start"
         >
           <Command>
-            <CommandInput placeholder="Search ..." />
+            <CommandInput placeholder={t('common.search') + '...'} />
             <CommandList>
-              <CommandEmpty>No data found.</CommandEmpty>
+              <CommandEmpty>{t('common.noDataFound')}</CommandEmpty>
               {options.map((group, idx) => {
                 if (group.options) {
                   return (
@@ -159,9 +160,7 @@ export const SelectWithSearch = forwardRef<
                             disabled={option.disabled}
                             onSelect={handleSelect}
                           >
-                            <span className="text-lg leading-none">
-                              {option.label}
-                            </span>
+                            <span className="leading-none">{option.label}</span>
 
                             {value === option.value && (
                               <CheckIcon size={16} className="ml-auto" />
@@ -179,9 +178,7 @@ export const SelectWithSearch = forwardRef<
                       disabled={group.disabled}
                       onSelect={handleSelect}
                     >
-                      <span className="text-lg leading-none">
-                        {group.label}
-                      </span>
+                      <span className="leading-none">{group.label}</span>
 
                       {value === group.value && (
                         <CheckIcon size={16} className="ml-auto" />

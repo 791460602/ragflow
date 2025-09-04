@@ -59,7 +59,7 @@ export default function Dataset() {
     setRowSelection,
   });
   return (
-    <section className="p-5">
+    <section className="p-5 min-w-[880px]">
       <ListFilterBar
         title="Dataset"
         onSearchChange={handleInputChange}
@@ -111,6 +111,7 @@ export default function Dataset() {
           hideModal={hideDocumentUploadModal}
           onOk={onDocumentUploadOk}
           loading={documentUploadLoading}
+          showParseOnCreation
         ></FileUploadDialog>
       )}
       {createVisible && (

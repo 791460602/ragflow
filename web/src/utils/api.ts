@@ -1,4 +1,5 @@
 let api_host = `/v1`;
+const ExternalApi = `/api`;
 
 export { api_host };
 
@@ -43,6 +44,7 @@ export default {
   get_kb_detail: `${api_host}/kb/detail`,
   getKnowledgeGraph: (knowledgeId: string) =>
     `${api_host}/kb/${knowledgeId}/knowledge_graph`,
+  getMeta: `${api_host}/kb/get_meta`,
 
   // tags
   listTag: (knowledgeId: string) => `${api_host}/kb/${knowledgeId}/tags`,
@@ -107,6 +109,11 @@ export default {
   completeExternalConversation: `${api_host}/api/completion`,
   uploadAndParseExternal: `${api_host}/api/document/upload_and_parse`,
 
+  // next chat
+  listNextDialog: `${api_host}/dialog/next`,
+  fetchExternalChatInfo: (id: string) =>
+    `${ExternalApi}${api_host}/chatbots/${id}/info`,
+
   // file manager
   listFile: `${api_host}/file/list`,
   uploadFile: `${api_host}/file/upload`,
@@ -153,6 +160,10 @@ export default {
   fetchCanvas: (id: string) => `${api_host}/canvas/get/${id}`,
   fetchAgentAvatar: (id: string) => `${api_host}/canvas/getsse/${id}`,
   uploadAgentFile: (id?: string) => `${api_host}/canvas/upload/${id}`,
+  fetchAgentLogs: (canvasId: string) =>
+    `${api_host}/canvas/${canvasId}/sessions`,
+  fetchExternalAgentInputs: (canvasId: string) =>
+    `${ExternalApi}${api_host}/agentbots/${canvasId}/inputs`,
 
   // mcp server
   listMcpServer: `${api_host}/mcp_server/list`,
@@ -166,4 +177,16 @@ export default {
   testMcpServerTool: `${api_host}/mcp_server/test_tool`,
   cacheMcpServerTool: `${api_host}/mcp_server/cache_tools`,
   testMcpServer: `${api_host}/mcp_server/test_mcp`,
+
+  // next-search
+  createSearch: `${api_host}/search/create`,
+  getSearchList: `${api_host}/search/list`,
+  deleteSearch: `${api_host}/search/rm`,
+  getSearchDetail: `${api_host}/search/detail`,
+  getSearchDetailShare: `${ExternalApi}${api_host}/searchbots/detail`,
+  updateSearchSetting: `${api_host}/search/update`,
+  askShare: `${ExternalApi}${api_host}/searchbots/ask`,
+  mindmapShare: `${ExternalApi}${api_host}/searchbots/mindmap`,
+  getRelatedQuestionsShare: `${ExternalApi}${api_host}/searchbots/related_questions`,
+  retrievalTestShare: `${ExternalApi}${api_host}/searchbots/retrieval_test`,
 };

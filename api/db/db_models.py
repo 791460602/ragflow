@@ -245,22 +245,21 @@ class JsonSerializedField(SerializedField):
 
 class RetryingPooledMySQLDatabase(PooledMySQLDatabase):
     def __init__(self, *args, **kwargs):
-        self.max_retries = kwargs.pop('max_retries', 5)
-        self.retry_delay = kwargs.pop('retry_delay', 1)
+        self.max_retries = kwargs.pop("max_retries", 5)
+        self.retry_delay = kwargs.pop("retry_delay", 1)
         super().__init__(*args, **kwargs)
 
     def execute_sql(self, sql, params=None, commit=True):
         from peewee import OperationalError
+
         for attempt in range(self.max_retries + 1):
             try:
                 return super().execute_sql(sql, params, commit)
             except OperationalError as e:
                 if e.args[0] in (2013, 2006) and attempt < self.max_retries:
-                    logging.warning(
-                        f"Lost connection (attempt {attempt+1}/{self.max_retries}): {e}"
-                    )
+                    logging.warning(f"Lost connection (attempt {attempt + 1}/{self.max_retries}): {e}")
                     self._handle_connection_loss()
-                    time.sleep(self.retry_delay * (2 ** attempt))
+                    time.sleep(self.retry_delay * (2**attempt))
                 else:
                     logging.error(f"DB execution failure: {e}")
                     raise
@@ -272,16 +271,15 @@ class RetryingPooledMySQLDatabase(PooledMySQLDatabase):
 
     def begin(self):
         from peewee import OperationalError
+
         for attempt in range(self.max_retries + 1):
             try:
                 return super().begin()
             except OperationalError as e:
                 if e.args[0] in (2013, 2006) and attempt < self.max_retries:
-                    logging.warning(
-                        f"Lost connection during transaction (attempt {attempt+1}/{self.max_retries})"
-                    )
+                    logging.warning(f"Lost connection during transaction (attempt {attempt + 1}/{self.max_retries})")
                     self._handle_connection_loss()
-                    time.sleep(self.retry_delay * (2 ** attempt))
+                    time.sleep(self.retry_delay * (2**attempt))
                 else:
                     raise
 
@@ -463,6 +461,7 @@ class DataBaseModel(BaseModel):
 
 
 @DB.connection_context()
+@DB.lock("init_database_tables", 60)
 def init_database_tables(alter_fields=[]):
     members = inspect.getmembers(sys.modules[__name__], inspect.isclass)
     table_objs = []
@@ -474,7 +473,7 @@ def init_database_tables(alter_fields=[]):
             if not obj.table_exists():
                 logging.debug(f"start create table {obj.__name__}")
                 try:
-                    obj.create_table()
+                    obj.create_table(safe=True)
                     logging.debug(f"create table success: {obj.__name__}")
                 except Exception as e:
                     logging.exception(e)
@@ -741,8 +740,9 @@ class Dialog(DataBaseModel):
     prompt_type = CharField(max_length=16, null=False, default="simple", help_text="simple|advanced", index=True)
     prompt_config = JSONField(
         null=False,
-        default={"system": "", "prologue": "Hi! I'm your assistant, what can I do for you?", "parameters": [], "empty_response": "Sorry! No relevant content was found in the knowledge base!"},
+        default={"system": "", "prologue": "Hi! I'm your assistant. What can I do for you?", "parameters": [], "empty_response": "Sorry! No relevant content was found in the knowledge base!"},
     )
+    meta_data_filter = JSONField(null=True, default={})
 
     similarity_threshold = FloatField(default=0.2)
     vector_similarity_weight = FloatField(default=0.3)
@@ -798,6 +798,7 @@ class API4Conversation(DataBaseModel):
     duration = FloatField(default=0, index=True)
     round = IntegerField(default=0, index=True)
     thumb_up = IntegerField(default=0, index=True)
+    errors = TextField(null=True, help_text="errors")
 
     class Meta:
         db_table = "api_4_conversation"
@@ -812,6 +813,7 @@ class UserCanvas(DataBaseModel):
     permission = CharField(max_length=16, null=False, help_text="me|team", default="me", index=True)
     description = TextField(null=True, help_text="Canvas description")
     canvas_type = CharField(max_length=32, null=True, help_text="Canvas type", index=True)
+    canvas_category = CharField(max_length=32, null=False, default="agent_canvas", help_text="Canvas category: agent_canvas|dataflow_canvas", index=True)
     dsl = JSONField(null=True, default={})
 
     class Meta:
@@ -821,10 +823,10 @@ class UserCanvas(DataBaseModel):
 class CanvasTemplate(DataBaseModel):
     id = CharField(max_length=32, primary_key=True)
     avatar = TextField(null=True, help_text="avatar base64 string")
-    title = CharField(max_length=255, null=True, help_text="Canvas title")
-
-    description = TextField(null=True, help_text="Canvas description")
+    title = JSONField(null=True, default=dict, help_text="Canvas title")
+    description = JSONField(null=True, default=dict, help_text="Canvas description")
     canvas_type = CharField(max_length=32, null=True, help_text="Canvas type", index=True)
+    canvas_category = CharField(max_length=32, null=False, default="agent_canvas", help_text="Canvas category: agent_canvas|dataflow_canvas", index=True)
     dsl = JSONField(null=True, default={})
 
     class Meta:
@@ -869,7 +871,7 @@ class Search(DataBaseModel):
         default={
             "kb_ids": [],
             "doc_ids": [],
-            "similarity_threshold": 0.0,
+            "similarity_threshold": 0.2,
             "vector_similarity_weight": 0.3,
             "use_kg": False,
             # rerank settings
@@ -878,11 +880,12 @@ class Search(DataBaseModel):
             # chat settings
             "summary": False,
             "chat_id": "",
+            # Leave it here for reference, don't need to set default values
             "llm_setting": {
-                "temperature": 0.1,
-                "top_p": 0.3,
-                "frequency_penalty": 0.7,
-                "presence_penalty": 0.4,
+                # "temperature": 0.1,
+                # "top_p": 0.3,
+                # "frequency_penalty": 0.7,
+                # "presence_penalty": 0.4,
             },
             "chat_settingcross_languages": [],
             "highlight": False,
@@ -983,13 +986,7 @@ class NewsContent(DataBaseModel):
     tenant_id = CharField(max_length=32, null=False, help_text="租户ID", index=True)
     
     # 新闻元数据（不重复存储内容）
-    # 修改: 增加 unique=True 约束，从数据库层面防止重复
-    original_url = TextField(null=False, help_text="原文URL", unique=True)
-    
-    # 新增: title 和 content 字段，用于存储爬虫直接提取的内容
-    title = TextField(null=False, help_text="新闻标题")
-    content = LongTextField(null=True, help_text="新闻正文内容")
-    
+    original_url = TextField(null=False, help_text="原文URL")
     author = CharField(max_length=128, null=True, help_text="作者")
     publish_time = BigIntegerField(null=True, help_text="发布时间戳", index=True)
     fetch_time = BigIntegerField(null=False, help_text="抓取时间戳", index=True)
@@ -1008,4 +1005,137 @@ class NewsContent(DataBaseModel):
     
     class Meta:
         db_table = "news_content"
+def migrate_db():
+    logging.disable(logging.ERROR)
+    migrator = DatabaseMigrator[settings.DATABASE_TYPE.upper()].value(DB)
+    try:
+        migrate(migrator.add_column("file", "source_type", CharField(max_length=128, null=False, default="", help_text="where dose this document come from", index=True)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("tenant", "rerank_id", CharField(max_length=128, null=False, default="BAAI/bge-reranker-v2-m3", help_text="default rerank model ID")))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("dialog", "rerank_id", CharField(max_length=128, null=False, default="", help_text="default rerank model ID")))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("dialog", "top_k", IntegerField(default=1024)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.alter_column_type("tenant_llm", "api_key", CharField(max_length=2048, null=True, help_text="API KEY", index=True)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("api_token", "source", CharField(max_length=16, null=True, help_text="none|agent|dialog", index=True)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("tenant", "tts_id", CharField(max_length=256, null=True, help_text="default tts model ID", index=True)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("api_4_conversation", "source", CharField(max_length=16, null=True, help_text="none|agent|dialog", index=True)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("task", "retry_count", IntegerField(default=0)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.alter_column_type("api_token", "dialog_id", CharField(max_length=32, null=True, index=True)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("tenant_llm", "max_tokens", IntegerField(default=8192, index=True)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("api_4_conversation", "dsl", JSONField(null=True, default={})))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("knowledgebase", "pagerank", IntegerField(default=0, index=False)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("api_token", "beta", CharField(max_length=255, null=True, index=True)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("task", "digest", TextField(null=True, help_text="task digest", default="")))
+    except Exception:
+        pass
+
+    try:
+        migrate(migrator.add_column("task", "chunk_ids", LongTextField(null=True, help_text="chunk ids", default="")))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("conversation", "user_id", CharField(max_length=255, null=True, help_text="user_id", index=True)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("document", "meta_fields", JSONField(null=True, default={})))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("task", "task_type", CharField(max_length=32, null=False, default="")))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("task", "priority", IntegerField(default=0)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("user_canvas", "permission", CharField(max_length=16, null=False, help_text="me|team", default="me", index=True)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("llm", "is_tools", BooleanField(null=False, help_text="support tools", default=False)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("mcp_server", "variables", JSONField(null=True, help_text="MCP Server variables", default=dict)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.rename_column("task", "process_duation", "process_duration"))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.rename_column("document", "process_duation", "process_duration"))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("document", "suffix", CharField(max_length=32, null=False, default="", help_text="The real file extension suffix", index=True)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("api_4_conversation", "errors", TextField(null=True, help_text="errors")))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("dialog", "meta_data_filter", JSONField(null=True, default={})))
+    except Exception:
+        pass
+
+    try:
+        migrate(migrator.alter_column_type("canvas_template", "title", JSONField(null=True, default=dict, help_text="Canvas title")))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.alter_column_type("canvas_template", "description", JSONField(null=True, default=dict, help_text="Canvas description")))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("user_canvas", "canvas_category", CharField(max_length=32, null=False, default="agent_canvas", help_text="agent_canvas|dataflow_canvas", index=True)))
+    except Exception:
+        pass
+    try:
+        migrate(migrator.add_column("canvas_template", "canvas_category", CharField(max_length=32, null=False, default="agent_canvas", help_text="agent_canvas|dataflow_canvas", index=True)))
+    except Exception:
+        pass
     logging.disable(logging.NOTSET)
