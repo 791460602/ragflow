@@ -43,6 +43,8 @@ export enum Routes {
   AgentShare = '/agent/share',
   ChatShare = `${Chats}/share`,
   UserSetting = '/user-setting',
+  DataFlows = '/data-flows',
+  DataFlow = '/data-flow',
 }
 
 const routes = [
@@ -152,6 +154,7 @@ const routes = [
     path: Routes.Root,
     layout: false,
     component: '@/layouts/next',
+    wrappers: ['@/wrappers/auth'],
     routes: [
       {
         path: Routes.Root,
@@ -343,7 +346,6 @@ const routes = [
     ],
   },
   {
-
     // path: Routes.NewsCollector,
     // // layout: false,
     // component: '@/layouts/next',
@@ -396,7 +398,22 @@ const routes = [
         component: `@/pages${Routes.ProfileMcp}`,
       },
     ],
-
+  },
+  {
+    path: Routes.DataFlows,
+    layout: false,
+    component: '@/layouts/next',
+    routes: [
+      {
+        path: Routes.DataFlows,
+        component: `@/pages${Routes.DataFlows}`,
+      },
+    ],
+  },
+  {
+    path: `${Routes.DataFlow}/:id`,
+    layout: false,
+    component: `@/pages${Routes.DataFlow}`,
   },
 ];
 
