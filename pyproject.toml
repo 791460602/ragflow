@@ -131,6 +131,8 @@ dependencies = [
     "python-calamine>=0.4.0",
     "litellm>=1.74.15.post1",
     "flask-mail>=0.10.0",
+    "crawl4ai",
+    "beautifulsoup4",
 ]
 
 [project.optional-dependencies]

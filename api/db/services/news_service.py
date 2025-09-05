@@ -25,6 +25,8 @@ from api.db.services.document_service import DocumentService
 from api.db.services.knowledgebase_service import KnowledgebaseService
 from api.utils import get_uuid
 from api.db.db_models import DB
+# 新增: 导入 hashlib 用于生成内容哈希值
+import hashlib
 
 
 class NewsSourceService(CommonService):
@@ -35,10 +37,17 @@ class NewsSourceService(CommonService):
     def get_by_tenant_id(cls, tenant_id: str, page: int = 1, page_size: int = 20, 
                         name: Optional[str] = None, status: Optional[str] = None):
         """根据租户ID获取新闻源列表"""
-        query = cls.model.select().where(cls.model.tenant_id == tenant_id)
+        
+        # 修改: 默认查询条件增加了 status != 'deleted'
+        query = cls.model.select().where(
+            (cls.model.tenant_id == tenant_id) & 
+            (cls.model.status != 'deleted')
+        )
         
         if name:
             query = query.where(cls.model.name.contains(name))
+        
+        # 修改: 如果外部传入了 status 参数，则使用外部的，否则默认不显示 deleted
         if status:
             query = query.where(cls.model.status == status)
             
@@ -308,36 +317,84 @@ class NewsContentService(CommonService):
         
         return [cls.to_dict(content) for content in contents], total
 
+    # =================================================================
+    # START OF MODIFICATIONS - 重写 create_content 方法
+    # =================================================================
     @classmethod
     @DB.connection_context()
-    def create_content(cls, tenant_id: str, user_id: Optional[str] = None, **kwargs):
-        """创建新闻内容"""
-        content_id = kwargs.get('id', get_uuid())
+    def create_content(cls, tenant_id: str, task_id: str, source_id: str, article_data: Dict[str, Any], user_id: Optional[str] = None):
+        """
+        创建一条新的新闻内容记录并存入数据库。
+        重写后包含基于URL和内容哈希的去重检查，以及完整的错误处理。
+
+        :param tenant_id: 租户ID
+        :param task_id: 关联的任务ID
+        :param source_id: 关联的新闻源ID
+        :param article_data: 包含新闻信息的字典，来自爬虫
+        :param user_id: 创建者用户ID (可选)
+        :return: 创建的 NewsContent 对象或在重复/失败时返回 None
+        """
+        original_url = article_data.get("url")
+        if not original_url:
+            print("[DB Service] 错误：文章数据缺少 'url'，无法创建记录。")
+            return None
+
+        content_text = article_data.get("content", "")
+
+        # 修改: 增加对 content_text 本身是否为 None 的检查
+        if not content_text or not content_text.strip():
+            print(f"[DB Service] 跳过：URL '{original_url}' 的内容为空或None。")
+            return None
+        # 如果内容为空，则不进行存储
+        if not content_text.strip():
+            print(f"[DB Service] 跳过：URL '{original_url}' 的内容为空。")
+            return None
         
-        # 如果没有提供user_id，使用tenant_id作为默认值
-        if user_id is None:
-            user_id = tenant_id
-        
-        content_data = {
-            'id': content_id,
-            'tenant_id': tenant_id,
-            'user_id': user_id,
-            'task_id': kwargs.get('task_id'),
-            'source_id': kwargs.get('source_id'),
-            'document_id': kwargs.get('document_id'),
-            'original_url': kwargs.get('original_url'),
-            'author': kwargs.get('author'),
-            'publish_time': kwargs.get('publish_time'),
-            'fetch_time': kwargs.get('fetch_time', int(datetime.now().timestamp() * 1000)),
-            'category': kwargs.get('category'),
-            'tags': kwargs.get('tags', []),
-            'summary': kwargs.get('summary'),
-            'content_hash': kwargs.get('content_hash'),
-            'word_count': kwargs.get('word_count', 0)
-        }
-        
-        content = cls.model.create(**content_data)
-        return cls.to_dict(content)
+        try:
+            # 1. 基于 URL 的去重检查
+            if cls.model.select().where(cls.model.original_url == original_url).exists():
+                print(f"[DB Service] 跳过：URL '{original_url}' 已存在于数据库中。")
+                return None
+            
+            # 2. 基于内容哈希的去重检查
+            content_hash = hashlib.sha256(content_text.encode('utf-8')).hexdigest()
+            if cls.check_duplicate(content_hash):
+                print(f"[DB Service] 跳过：内容哈希值重复 (URL: {original_url})。")
+                return None
+
+            # 准备要插入数据库的数据
+            content_data = {
+                'id': get_uuid(),
+                'tenant_id': tenant_id,
+                'user_id': user_id or tenant_id, # 如果user_id未提供，则使用tenant_id作为后备
+                'task_id': task_id,
+                'source_id': source_id,
+                'original_url': original_url,
+                'title': article_data.get("title", "无标题"),
+                'content': content_text,
+                'author': article_data.get("author"),
+                'publish_time': article_data.get("publication_time"), # 键名来自RecursiveCrawl4AI
+                'fetch_time': int(datetime.now().timestamp() * 1000),
+                'category': article_data.get("category"),
+                'tags': article_data.get("tags", []),
+                'summary': article_data.get("summary"),
+                'content_hash': content_hash,
+                'word_count': len(content_text)
+            }
+            
+            # 3. 创建记录
+            new_content = cls.model.create(**content_data)
+            print(f"[DB Service] 成功插入记录，URL: {original_url}")
+            return cls.to_dict(new_content)
+
+        except Exception as e:
+            # 4. 统一的错误处理
+            print(f"[DB Service] 数据库操作失败，URL: {original_url}")
+            traceback.print_exc()
+            return None
+    # =================================================================
+    # END OF MODIFICATIONS
+    # =================================================================
 
     @classmethod
     @DB.connection_context()
@@ -372,10 +429,11 @@ class NewsContentService(CommonService):
     @DB.connection_context()
     def check_duplicate(cls, content_hash: str) -> bool:
         """检查内容是否重复"""
-        exists = cls.model.select().where(
+        if not content_hash:
+            return False
+        return cls.model.select().where(
             cls.model.content_hash == content_hash
         ).exists()
-        return exists
 
     @classmethod
     def to_dict(cls, obj):
