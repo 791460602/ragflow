@@ -195,3 +195,8 @@ dist
 
 # Default backup dir
 backup
+
+.crawl4ai_data/www*/
+
+.gitconfig
+
