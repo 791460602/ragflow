@@ -199,7 +199,8 @@ class RAGFlow:
         top_k=1024,
         rerank_id: str | None = None,
         keyword: bool = False,
-        cross_languages: list[str]|None = None
+        cross_languages: list[str]|None = None,
+        metadata_condition: dict | None = None,
     ):
         if document_ids is None:
             document_ids = []
@@ -214,7 +215,8 @@ class RAGFlow:
             "question": question,
             "dataset_ids": dataset_ids,
             "document_ids": document_ids,
-            "cross_languages": cross_languages
+            "cross_languages": cross_languages,
+            "metadata_condition": metadata_condition
         }
         # Send a POST request to the backend service (using requests library as an example, actual implementation may vary)
         res = self.post("/retrieval", json=data_json)
