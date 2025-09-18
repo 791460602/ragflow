@@ -987,6 +987,7 @@ class NewsContent(DataBaseModel):
     
     # 新闻元数据（不重复存储内容）
     original_url = TextField(null=False, help_text="原文URL")
+    title = CharField(max_length=1023, null=True, help_text="标题")
     author = CharField(max_length=128, null=True, help_text="作者")
     publish_time = BigIntegerField(null=True, help_text="发布时间戳", index=True)
     fetch_time = BigIntegerField(null=False, help_text="抓取时间戳", index=True)
