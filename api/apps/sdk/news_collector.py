@@ -45,48 +45,32 @@ from flask import Blueprint
 
 
 # =================================================================================
-# 重写版本 1: LibraryCrawler.recursive_crawl 方法
-# 核心改动：增强了标题提取逻辑，确保每个页面都有一个高质量或唯一性的标题。
+# LibraryCrawler 类 (最终修正版)
 # =================================================================================
 class LibraryCrawler:
     """
     一个封装了 crawl4ai 库调用逻辑的内部爬虫类。
     """
-
-    async def recursive_crawl(self, start_url: str, depth: int, max_pages: int, selectors: dict):
-        crawled_data = []
+    async def recursive_crawl(self, start_url: str, depth: int, max_pages: int, 
+                              persistent_hashes: set, selectors: dict = None):
+        """
+        最终修正：
+        1. 无论当前页面内容是否重复，总是解析页面上的链接，以发现新内容。
+        2. 只有当页面内容本身是全新的，才将其添加到最终的结果列表。
+        """
+        newly_crawled_data = [] # 只存储本次抓取到的新数据
         async with AsyncWebCrawler() as crawler:
             visited_urls = set()
             urls_to_visit = [(start_url, 0)]
 
-            # --- 新增: 定义一个要忽略的文件扩展名元组 ---
             IGNORED_EXTENSIONS = (
-                ".doc",
-                ".docx",
-                ".wps",
-                ".xls",
-                ".xlsx",
-                ".ppt",
-                ".pptx",
-                ".zip",
-                ".rar",
-                ".7z",
-                ".gz",
-                ".tar",
-                ".jpg",
-                ".jpeg",
-                ".png",
-                ".gif",
-                ".bmp",
-                ".svg",
-                ".mp3",
-                ".mp4",
-                ".avi",
-                ".mov",
-                ".wmv",
+                ".doc", ".docx", ".wps", ".xls", ".xlsx", ".ppt", ".pptx",
+                ".zip", ".rar", ".7z", ".gz", ".tar", ".jpg", ".jpeg",
+                ".png", ".gif", ".bmp", ".svg", ".mp3", ".mp4", ".avi",
+                ".mov", ".wmv", ".pdf"
             )
 
-            while urls_to_visit and len(crawled_data) < max_pages:
+            while urls_to_visit and len(newly_crawled_data) < max_pages:
                 current_url, current_depth = urls_to_visit.pop(0)
                 if current_url in visited_urls:
                     continue
@@ -96,151 +80,195 @@ class LibraryCrawler:
 
                 try:
                     result = await crawler.arun(url=current_url)
-                    if not result.success or not (result.html or result.markdown):
-                        print("[LibraryCrawler] 警告: 未能获取有效内容，跳过页面解析。")
+                    if not result.success or not result.html:
                         continue
 
-                    # ... (标题和内容提取逻辑保持不变) ...
-                    # 为了简洁，这里省略了页面数据提取的代码块，请在您的文件中保留它
                     soup = BeautifulSoup(result.html, "html.parser")
-                    title_tag = soup.select_one(selectors.get("title_selector"))
-                    title_text = title_tag.get_text(strip=True) if title_tag else None
-                    if not title_text and result.markdown:
-                        for line in result.markdown.split("\n"):
-                            cleaned_line = line.strip("#*-> ").strip()
-                            if cleaned_line:
-                                title_text = cleaned_line
-                                break
-                    if not title_text:
-                        title_text = f"Untitled_{get_uuid()}"
-                    content_tag = soup.select_one(selectors.get("content_selector"))
-                    author_tag = soup.select_one(selectors.get("author_selector"))
-                    time_tag = soup.select_one(selectors.get("publication_time_selector"))
-                    page_data = {
-                        "url": current_url,
-                        "title": title_text,
-                        "content": content_tag.get_text(strip=True) if content_tag else result.markdown,
-                        "author": author_tag.get_text(strip=True) if author_tag else None,
-                        "publication_time": time_tag.get_text(strip=True) if time_tag else None,
-                        "crawl_timestamp": datetime.now().isoformat(),
-                    }
-                    crawled_data.append(page_data)
-                    print(f"[LibraryCrawler] 成功解析页面: {page_data['title']}")
+                    
+                    # ==================== 核心逻辑修正 START ====================
+                    
+                    # 步骤 1: 解析内容并计算哈希 (无论新旧)
+                    content_text = ""
+                    title_text = ""
+                    
+                    if selectors and selectors.get("link_selector"):
+                        # (精确模式解析逻辑不变)
+                        print("[LibraryCrawler] 模式: 精确抓取 (使用选择器)")
+                        content_tag = soup.select_one(selectors.get("content_selector"))
+                        content_text = content_tag.get_text(strip=True) if content_tag else result.markdown
+                    else:
+                        # (自动模式解析逻辑不变)
+                        print("[LibraryCrawler] 模式: 自动抓取 (无选择器)")
+                        content_text = result.markdown
 
-                    # --- 修改: 发现新链接时进行过滤 ---
+                    if not content_text or not content_text.strip():
+                        print(f"[LibraryCrawler] 警告: 页面内容为空，跳过内容处理，但仍会查找链接。")
+                    else:
+                        content_hash = hashlib.sha256(content_text.encode("utf-8")).hexdigest()
+                        
+                        # 步骤 2: 判断内容是否为全新
+                        if content_hash in persistent_hashes:
+                            # 如果是重复内容，只打印信息，不执行 continue
+                            title_tag = soup.title.string if soup.title else current_url
+                            print(f"[持久化去重] 跳过已存在内容: {title_tag}")
+                        else:
+                            # 如果是全新内容，则准备存储
+                            # (解析标题、作者等元数据的逻辑移到这里)
+                            author_text = None
+                            time_text = None
+                            if selectors and selectors.get("link_selector"):
+                                title_tag = soup.select_one(selectors.get("title_selector", "h1"))
+                                title_text = title_tag.get_text(strip=True) if title_tag else soup.title.string
+                                author_tag = soup.select_one(selectors.get("author_selector"))
+                                author_text = author_tag.get_text(strip=True) if author_tag else None
+                                time_tag = soup.select_one(selectors.get("publication_time_selector"))
+                                time_text = time_tag.get_text(strip=True) if time_tag else None
+                            else:
+                                if result.markdown:
+                                    for line in result.markdown.split("\n"):
+                                        cleaned_line = line.strip("#*-> ").strip()
+                                        if cleaned_line:
+                                            title_text = cleaned_line
+                                            break
+                                if not title_text:
+                                    title_text = soup.title.string if soup.title else f"Untitled_{get_uuid()}"
+                            
+                            print(f"[LibraryCrawler] 发现新内容: {title_text}")
+                            page_data = {
+                                "url": current_url, "title": title_text, "content": content_text,
+                                "author": author_text, "publication_time": time_text,
+                                "crawl_timestamp": datetime.now().isoformat(),
+                                "content_hash": content_hash
+                            }
+                            newly_crawled_data.append(page_data)
+                            persistent_hashes.add(content_hash)
+
+                    # 步骤 3: 发现并添加新链接 (此步骤现在总会执行)
                     if current_depth < depth:
-                        link_selector = selectors.get("link_selector", "a[href]")
+                        link_selector = selectors.get("link_selector", "a[href]") if selectors else "a[href]"
                         for link_tag in soup.select(link_selector):
                             href = link_tag.get("href")
                             if href and not href.startswith(("javascript:", "#", "mailto:")):
                                 absolute_link = urljoin(current_url, href)
-
-                                # 检查链接是否是我们要忽略的类型
                                 if absolute_link.lower().endswith(IGNORED_EXTENSIONS):
-                                    print(f"[过滤] 忽略不支持的文件链接: {absolute_link}")
-                                    continue  # 跳过这个链接
-
+                                    continue
                                 if urlparse(absolute_link).netloc == urlparse(start_url).netloc and absolute_link not in visited_urls:
                                     urls_to_visit.append((absolute_link, current_depth + 1))
+                    # ===================== 核心逻辑修正 END ======================
+
                 except Exception as e:
                     print(f"[LibraryCrawler] 错误: 处理 {current_url} 时发生错误: {e}")
 
-        return crawled_data
+        return newly_crawled_data
 
 
 # =================================================================================
-# --- 新增: 结构性调整后的新功能 ---
+# 后台异步任务 (已重构)
+# 核心改动：从数据库加载新闻源配置，并根据 remark 字段动态选择抓取模式。
 # =================================================================================
-
-
 def _sanitize_filename(name: str) -> str:
-    """
-    清理字符串，使其成为一个合法的文件名。
-    """
-    # 移除路径相关的字符和大多数标点符号
+    """清理字符串，使其成为一个合法的文件名的一部分。"""
     name = re.sub(r'[\\/*?:"<>|]', "", name)
-    # 将多个空格替换为单个下划线
     name = re.sub(r"\s+", "_", name)
-    # 限制文件名长度，避免过长
     return name[:100]
 
 
-# =================================================================================
-# 重写版本 2: _async_crawl_from_post_worker 函数
-# 核心改动：增加了文件名冲突检查，防止文件覆盖。
-# =================================================================================
-async def _async_crawl_from_post_worker(sources: list, depth: int, max_pages: int):
+async def _async_crawl_from_post_worker(tenant_id: str, source_ids: list, depth: int, max_pages: int):
     """
-    异步任务核心：接收一个源列表和控制参数，抓取它们，并将结果存为单独的JSON文件。
+    (已重构) 异步任务核心：
+    1. 从数据库加载所有已存在的哈希值。
+    2. 将哈希集合传入爬虫，由爬虫进行“边抓取、边检查”。
+    3. 只对爬虫返回的“全新内容”进行存储和数据库更新。
     """
-    print(f"[即时任务] 开始处理 {len(sources)} 个新闻源... (深度: {depth}, 每源最大页数: {max_pages})")
+    print(f"[后台任务] 开始处理 {len(source_ids)} 个新闻源... (深度: {depth}, 每源最大页数: {max_pages})")
+    
+    try:
+        content_hashes = NewsContentService.get_all_content_hashes(tenant_id)
+        print(f"[后台任务] 成功从数据库加载 {len(content_hashes)} 个已存在的历史内容哈希。")
+    except Exception as e:
+        print(f"[后台任务] 严重错误: 从数据库加载历史哈希失败: {e}")
+        content_hashes = set()
 
-    content_hashes = set()
     crawler = LibraryCrawler()
+    instant_task_id = get_uuid()
 
-    for i, source in enumerate(sources):
-        source_name = source.get("url", f"源_{i + 1}")
+    sources_from_db = []
+    for sid in source_ids:
+        try:
+            _, source_model = NewsSourceService.get_by_id(sid)
+            if source_model:
+                sources_from_db.append(NewsSourceService.to_dict(source_model))
+            else:
+                print(f"[后台任务] 警告: 未在数据库中找到 ID 为 {sid} 的新闻源。")
+        except Exception as e:
+            print(f"[后台任务] 错误: 查询新闻源 {sid} 时出错: {e}")
+
+    total_new_articles_saved = 0
+    for i, source in enumerate(sources_from_db):
+        source_id = source.get("id")
+        source_name = source.get("name")
         start_url = source.get("url")
-        selectors = source
+        
+        print(f"\n[后台任务] 正在处理第 {i + 1}/{len(sources_from_db)} 个源: {source_name} ({start_url})")
 
-        print(f"\n[即时任务] 正在处理第 {i + 1}/{len(sources)} 个源: {source_name}")
-
-        if not start_url or "link_selector" not in selectors:
-            print(f"[即时任务] 跳过源 {source_name}，因为它缺少 url 或 link_selector。")
+        if not start_url:
             continue
+        
+        selectors = source.get("fetch_config") if source.get("remark") == "1" else None
 
         try:
-            crawled_results = await crawler.recursive_crawl(start_url=start_url, depth=depth, max_pages=max_pages, selectors=selectors)
+            new_articles = await crawler.recursive_crawl(
+                start_url=start_url, 
+                depth=depth, 
+                max_pages=max_pages, 
+                persistent_hashes=content_hashes,
+                selectors=selectors
+            )
+            
+            if not new_articles:
+                print(f"[后台任务] 源 '{source_name}' 未发现任何新内容。")
+                continue
+            
+            print(f"[后台任务] 源 '{source_name}' 发现 {len(new_articles)} 篇新内容，开始处理...")
 
-            for page_data in crawled_results:
-                # --- 新增: 关键字段完整性校验 ---
-                required_keys = ["url", "title", "content", "author", "publication_time"]
-                # 使用 any() 和列表推导式检查是否有任何一个关键字段的值为 None
-                if any(page_data.get(key) is None for key in required_keys):
-                    print(f"[过滤] 跳过页面 '{page_data.get('title')}'，因为它缺少五个关键字段之一或字段值为null。")
-                    continue
-                # --- 校验结束 ---
+            for page_data in new_articles:
+                content_hash = page_data.get("content_hash")
 
-                content = page_data.get("content")
-                if not content:
-                    continue
-
-                content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
-                if content_hash in content_hashes:
-                    print(f"[去重] 跳过重复内容页面: {page_data.get('title')}")
-                    continue
-                content_hashes.add(content_hash)
+                page_title = _sanitize_filename(page_data.get("title", "untitled"))
+                timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+                filename = f"{page_title}_{timestamp}_{content_hash[:16]}.json"
 
                 base_dir = "crawl4ai_data"
-                site_domain = urlparse(start_url).netloc
-                page_title = _sanitize_filename(page_data.get("title"))
-
+                site_domain = _sanitize_filename(urlparse(start_url).netloc)
                 output_dir = os.path.join(base_dir, site_domain)
-                output_file = os.path.join(output_dir, f"{page_title}.json")
-
-                counter = 1
-                while os.path.exists(output_file):
-                    output_file = os.path.join(output_dir, f"{page_title}_{counter}.json")
-                    counter += 1
+                output_file = os.path.join(output_dir, filename)
 
                 os.makedirs(output_dir, exist_ok=True)
-
+                
+                # ==================== 核心修正：afiles -> aiofiles ====================
                 async with aiofiles.open(output_file, "w", encoding="utf-8") as f:
                     await f.write(json.dumps(page_data, ensure_ascii=False, indent=2))
-
-                print(f"[文件存储] 成功保存页面: {output_file}")
+                # ===================================================================
+                print(f"[文件存储] 成功保存新页面: {output_file}")
+                
+                try:
+                    NewsContentService.create_content(
+                        tenant_id=tenant_id, task_id=instant_task_id, source_id=source_id, article_data=page_data
+                    )
+                    print(f"[数据库同步] 成功将新内容 '{page_title}' 同步到数据库。")
+                    total_new_articles_saved += 1
+                except Exception as e:
+                    print(f"[数据库同步] 警告: 写入数据库失败: {e}")
 
         except Exception as e:
-            print(f"[即时任务] 处理源 {source_name} 时发生严重错误: {e}")
+            print(f"[后台任务] 处理源 {source_name} 时发生严重错误: {e}")
             traceback.print_exc()
 
-    print("\n[即时任务] 所有新闻源处理完毕。")
+    print(f"\n[后台任务] 所有新闻源处理完毕。本次任务共发现并存储了 {total_new_articles_saved} 篇全新内容。")
 
-
-def _background_crawl_from_post_wrapper(sources: list, depth: int, max_pages: int):
+def _background_crawl_from_post_wrapper(tenant_id: str, source_ids: list, depth: int, max_pages: int):
     """同步的包装函数，在线程中启动asyncio事件循环。"""
-    # 修改: 接收并传递 depth 和 max_pages
-    asyncio.run(_async_crawl_from_post_worker(sources, depth, max_pages))
+    asyncio.run(_async_crawl_from_post_worker(tenant_id, source_ids, depth, max_pages))
 
 
 # ========== 爬虫核心框架 ==========
@@ -457,8 +485,11 @@ def _article_to_markdown(article: dict) -> str:
     return content
 
 
-# 新增: 定义一个 Blueprint 对象，名为 manager
-# 所有这个文件里的 @manager.route 都会注册到这个蓝图上
+# =================================================================================
+# Flask Blueprint 和 API 端点
+# =================================================================================
+
+# 定义一个 Blueprint 对象
 manager = Blueprint("news_collector_bp", __name__)
 # ========== 爬虫相关API ==========
 
@@ -665,7 +696,7 @@ def get_available_crawlers_api(tenant_id):
 # ========== 新闻源管理 CRUD ==========
 
 
-@manager.route("/news_collector/sources", methods=["GET"])  # noqa: F821
+@manager.route("/news_collector/sources", methods=["GET"])
 @token_required
 def list_news_sources(tenant_id):
     """获取新闻源列表"""
@@ -676,14 +707,13 @@ def list_news_sources(tenant_id):
         status = request.args.get("status")
 
         sources, total = NewsSourceService.get_by_tenant_id(tenant_id=tenant_id, page=page, page_size=page_size, name=name, status=status)
-
         return get_json_result(data={"sources": sources, "total": total, "page": page, "page_size": page_size})
 
     except Exception as e:
         return server_error_response(e)
 
 
-@manager.route("/news_collector/sources", methods=["POST"])  # noqa: F821
+@manager.route("/news_collector/sources", methods=["POST"])
 @token_required
 def create_news_source(tenant_id):
     """创建新闻源"""
@@ -691,48 +721,50 @@ def create_news_source(tenant_id):
         req = request.get_json()
 
         if not req.get("name"):
-            return get_json_result(code=400, message="名称不能为空")
+            return get_json_result(code=400, message="名称(name)不能为空")
         if not req.get("url"):
-            return get_json_result(code=400, message="URL不能为空")
+            return get_json_result(code=400, message="URL(url)不能为空")
 
         source = NewsSourceService.create_source(
             tenant_id=tenant_id,
-            user_id=tenant_id,  # 在RAGFlow架构中，使用tenant_id作为user_id
+            user_id=tenant_id,
             **req,
         )
-
         return get_json_result(data={"source": source})
 
     except Exception as e:
         return server_error_response(e)
 
 
-@manager.route("/news_collector/sources/<source_id>", methods=["GET"])  # noqa: F821
+@manager.route("/news_collector/sources/<source_id>", methods=["GET"])
 @token_required
 def get_news_source(tenant_id, source_id):
-    """获取单个新闻源详情"""
+    """(已修正) 获取单个新闻源详情"""
     try:
-        e, source = NewsSourceService.get_by_id(source_id)
-
-        if not source or source.get(tenant_id).tenant_id != tenant_id:
+        _, source_model = NewsSourceService.get_by_id(source_id)
+        
+        # FIX: 先判断对象是否存在，再转换为字典进行后续操作
+        if not source_model:
             return get_json_result(code=404, message="新闻源不存在")
+        
+        source_dict = NewsSourceService.to_dict(source_model)
 
-        source_dict = model_to_dict(source)
+        if source_dict.get("tenant_id") != tenant_id:
+            return get_json_result(code=404, message="新闻源不存在或无权限访问")
+        
         return get_json_result(data={"source": source_dict})
-
+    
     except Exception as e:
         return server_error_response(e)
 
 
-@manager.route("/news_collector/sources/<source_id>", methods=["PUT"])  # noqa: F821
+@manager.route("/news_collector/sources/<source_id>", methods=["PUT"])
 @token_required
 def update_news_source(tenant_id, source_id):
     """更新新闻源"""
     try:
         req = request.get_json()
-
         source = NewsSourceService.update_source(source_id=source_id, tenant_id=tenant_id, **req)
-
         return get_json_result(data={"source": source})
 
     except ValueError as e:
@@ -741,22 +773,19 @@ def update_news_source(tenant_id, source_id):
         return server_error_response(e)
 
 
-@manager.route("/news_collector/sources/<source_id>", methods=["DELETE"])  # noqa: F821
+@manager.route("/news_collector/sources/<source_id>", methods=["DELETE"])
 @token_required
 def delete_news_source(tenant_id, source_id):
     """删除新闻源"""
     try:
-        e, source = NewsSourceService.get_by_id(source_id)
-        if not source or source.get(tenant_id).tenant_id != tenant_id:
-            return get_json_result(code=404, message="新闻源不存在")
-
+        # 逻辑删除，将状态更新为 'deleted'
         NewsSourceService.update_source(source_id=source_id, tenant_id=tenant_id, status="deleted")
-
         return get_json_result(message="删除成功")
 
+    except ValueError as e:
+        return get_json_result(code=404, message=str(e))
     except Exception as e:
         return server_error_response(e)
-
 
 # ========== 任务管理 CRUD ==========
 
@@ -980,25 +1009,66 @@ def get_news_statistics(tenant_id):
 @token_required
 def crawl_from_post_api(tenant_id):
     """
-    接收一个包含新闻源配置列表和控制参数的对象，并为它们启动一个即时的后台抓取任务。
+    (已重构) 接收一个包含新闻源ID列表和控制参数的对象，
+    并为它们启动一个即时的、数据库驱动的后台抓取任务。
     """
     req_data = request.get_json()
 
-    # 修改: 解析新的请求体结构
-    sources_to_crawl = req_data.get("sources")
-    depth = int(req_data.get("depth", 2))  # 从请求中获取depth，默认值为2
-    max_pages_per_source = int(req_data.get("max_pages_per_source", 50))  # 从请求中获取max_pages，默认值为50
+    source_ids = req_data.get("source_ids")
+    depth = int(req_data.get("depth", 2))
+    max_pages_per_source = int(req_data.get("max_pages_per_source", 50))
 
-    if not isinstance(sources_to_crawl, list) or not sources_to_crawl:
-        return get_json_result(code=400, message="请求体必须包含一个名为 'sources' 的非空JSON数组。")
+    if not isinstance(source_ids, list) or not source_ids:
+        return get_json_result(code=400, message="请求体必须包含一个名为 'source_ids' 的非空数组。")
 
     try:
-        # 修改: 将新的参数传递给后台线程
-        thread = threading.Thread(target=_background_crawl_from_post_wrapper, args=(sources_to_crawl, depth, max_pages_per_source))
+        # 将 tenant_id 传递给后台线程
+        thread = threading.Thread(target=_background_crawl_from_post_wrapper, args=(tenant_id, source_ids, depth, max_pages_per_source))
         thread.start()
 
-        return get_json_result(data={"message": f"已成功启动后台即时抓取任务，共处理 {len(sources_to_crawl)} 个新闻源。"})
+        return get_json_result(data={"message": f"已成功启动后台即时抓取任务，将从数据库加载并处理 {len(source_ids)} 个新闻源。"})
 
     except Exception as e:
         traceback.print_exc()
+        return server_error_response(e)
+    
+# =================================================================================
+# 新增的哈希管理 API
+# =================================================================================
+
+@manager.route("/news_collector/contents/hashes", methods=["GET"])
+@token_required
+def list_content_hashes(tenant_id):
+    """
+    获取已存储内容的哈希列表（带分页）。
+    用于查看和调试持久化去重数据库。
+    """
+    try:
+        page = int(request.args.get("page", 1))
+        page_size = int(request.args.get("page_size", 20))
+
+        records, total = NewsContentService.get_hashes_paginated(
+            tenant_id=tenant_id, page=page, page_size=page_size
+        )
+
+        return get_json_result(data={"records": records, "total": total, "page": page, "page_size": page_size})
+
+    except Exception as e:
+        return server_error_response(e)
+
+
+@manager.route("/news_collector/contents", methods=["DELETE"])
+@token_required
+def delete_all_contents(tenant_id):
+    """
+    清除所有已存储的内容记录和哈希值。
+    这是一个危险操作，用于完全重置抓取历史。
+    """
+    try:
+        deleted_count = NewsContentService.delete_by_tenant_id(tenant_id)
+        # 清空本地文件是一个更复杂的操作，此处我们只清除数据库记录
+        # 如果需要，可以后续添加清理本地文件的逻辑
+        return get_json_result(message=f"成功删除 {deleted_count} 条内容记录。抓取历史已重置。")
+
+    except Exception as e:
         return server_error_response(e)

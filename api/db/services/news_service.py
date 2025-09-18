@@ -27,6 +27,7 @@ from api.utils import get_uuid
 from api.db.db_models import DB
 # 新增: 导入 hashlib 用于生成内容哈希值
 import hashlib
+from datetime import datetime  # <--- 确保文件顶部有这行导入语句
 
 
 class NewsSourceService(CommonService):
@@ -460,3 +461,59 @@ class NewsContentService(CommonService):
             result['tags'] = []
             
         return result
+    
+    # vvvvvvvvvv 在此处添加这个新方法 vvvvvvvvvv
+    @classmethod
+    @DB.connection_context()
+    def get_all_content_hashes(cls, tenant_id: str) -> set:
+        """高效获取指定租户的所有内容哈希值"""
+        query = cls.model.select(cls.model.content_hash).where(
+            (cls.model.tenant_id == tenant_id) &
+            (cls.model.content_hash.is_null(False))
+        )
+        return {item.content_hash for item in query}
+    # ^^^^^^^^^^^ 添加结束 ^^^^^^^^^^^
+
+    # vvvvvvvvvv 在此处添加这两个新方法 vvvvvvvvvv
+    @classmethod
+    @DB.connection_context()
+    def get_hashes_paginated(cls, tenant_id: str, page: int = 1, page_size: int = 20):
+        """(最终修正版) 分页获取内容的简略信息"""
+        query = cls.model.select()\
+            .where(cls.model.tenant_id == tenant_id)\
+            .order_by(cls.model.create_time.desc())
+
+        total = query.count()
+        records = query.paginate(page, page_size)
+
+        result = []
+        for record in records:
+            create_time_iso = None
+            # 检查 create_time 是否存在且为整数
+            if hasattr(record, 'create_time') and isinstance(record.create_time, int):
+                try:
+                    # 将毫秒时间戳除以1000转换为秒，然后创建datetime对象
+                    dt_object = datetime.fromtimestamp(record.create_time / 1000)
+                    create_time_iso = dt_object.isoformat()
+                except Exception:
+                    # 如果转换失败，则保持为None
+                    create_time_iso = str(record.create_time) # fallback to string
+
+            result.append({
+                "id": getattr(record, 'id', None),
+                "title": getattr(record, 'title', 'No Title'),
+                "content_hash": getattr(record, 'content_hash', None),
+                "create_time": create_time_iso
+            })
+            
+        return result, total
+
+
+    @classmethod
+    @DB.connection_context()
+    def delete_by_tenant_id(cls, tenant_id: str) -> int:
+        """根据租户ID删除所有内容记录"""
+        query = cls.model.delete().where(cls.model.tenant_id == tenant_id)
+        deleted_rows = query.execute()
+        return deleted_rows
+    # ^^^^^^^^^^^ 添加结束 ^^^^^^^^^^^

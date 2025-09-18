@@ -1,5 +1,5 @@
 version = 1
-revision = 1
+revision = 2
 requires-python = ">=3.10, <3.13"
 resolution-markers = [
     "python_full_version >= '3.12' and sys_platform == 'darwin'",
@@ -1061,6 +1061,32 @@ dependencies = [
 sdist = { url = "https://mirrors.aliyun.com/pypi/packages/02/5a/919e64ff2977d7aa1b2cda4d45f16ff8996cd2c2dc1f55936fb6cd214222/crawl4ai-0.3.745.tar.gz", hash = "sha256:990396d57e10ae7ccabf35c34a317dbd8c59a3ceca475eac75320a8808334438" }
 wheels = [
     { url = "https://mirrors.aliyun.com/pypi/packages/ed/7e/ebe351a457140330b20b6d8289b8f243b21de6e6bce505cd15b230a83bcb/Crawl4AI-0.3.745-py3-none-any.whl", hash = "sha256:763e6aba80959e60e1fe70cb9d954a4cf257eb230af30f51fcd99ff641a7a88d" },
+]
+
+[package.optional-dependencies]
+all = [
+    { name = "aiofiles" },
+    { name = "aiosqlite" },
+    { name = "beautifulsoup4" },
+    { name = "colorama" },
+    { name = "html2text" },
+    { name = "litellm" },
+    { name = "lxml" },
+    { name = "nltk" },
+    { name = "numpy" },
+    { name = "pillow" },
+    { name = "playwright" },
+    { name = "python-dotenv" },
+    { name = "rank-bm25" },
+    { name = "requests" },
+    { name = "scikit-learn" },
+    { name = "selenium" },
+    { name = "snowballstemmer" },
+    { name = "tf-playwright-stealth" },
+    { name = "tokenizers" },
+    { name = "torch" },
+    { name = "transformers" },
+    { name = "xxhash" },
 ]
 
 [[package]]
@@ -5279,6 +5305,7 @@ dependencies = [
     { name = "azure-storage-blob" },
     { name = "azure-storage-file-datalake" },
     { name = "beartype" },
+    { name = "beautifulsoup4" },
     { name = "bio" },
     { name = "blinker" },
     { name = "boto3" },
@@ -5288,7 +5315,7 @@ dependencies = [
     { name = "click" },
     { name = "cn2an" },
     { name = "cohere" },
-    { name = "crawl4ai" },
+    { name = "crawl4ai", extra = ["all"] },
     { name = "dashscope" },
     { name = "datrie" },
     { name = "debugpy" },
@@ -5431,6 +5458,7 @@ requires-dist = [
     { name = "azure-storage-file-datalake", specifier = "==12.16.0" },
     { name = "bcembedding", marker = "extra == 'full'", specifier = "==0.1.5" },
     { name = "beartype", specifier = ">=0.18.5,<0.19.0" },
+    { name = "beautifulsoup4" },
     { name = "bio", specifier = "==1.7.1" },
     { name = "blinker", specifier = "==1.7.0" },
     { name = "boto3", specifier = "==1.34.140" },
@@ -5441,6 +5469,7 @@ requires-dist = [
     { name = "cn2an", specifier = "==0.5.22" },
     { name = "cohere", specifier = "==5.6.2" },
     { name = "crawl4ai", specifier = ">=0.3.8" },
+    { name = "crawl4ai", extras = ["all"] },
     { name = "dashscope", specifier = "==1.20.11" },
     { name = "datrie", specifier = "==0.8.2" },
     { name = "debugpy", specifier = ">=1.8.13" },
