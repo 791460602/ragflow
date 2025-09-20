@@ -147,7 +147,14 @@ def load_user(web_request):
     authorization = web_request.headers.get("Authorization")
     if authorization:
         try:
-            access_token = str(jwt.loads(authorization))
+            # Handle Bearer token format
+            token = authorization
+            if authorization.startswith("Bearer "):
+                token = authorization[7:]  # Remove "Bearer " prefix
+            elif authorization.startswith("bearer "):
+                token = authorization[7:]  # Remove "bearer " prefix (case insensitive)
+            
+            access_token = str(jwt.loads(token))
 
             if not access_token or not access_token.strip():
                 logging.warning("Authentication attempt with empty access token")
