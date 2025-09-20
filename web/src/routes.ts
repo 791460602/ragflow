@@ -374,7 +374,8 @@ const routes = [
     path: Routes.NewsCollector,
     // layout: false,
     component: '@/pages/news_collector',
-
+  },
+  {
     path: '/user-setting',
     component: '@/pages/user-setting',
     layout: false,
