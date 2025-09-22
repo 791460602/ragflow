@@ -5,41 +5,56 @@ set -e
 
 # Function to load environment variables from .env file
 load_env_file() {
+    # Get the directory of the current script
     local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    local env_file="$script_dir/../.env"
+    local env_file="$script_dir/.env"
 
+    # Check if .env file exists
     if [ -f "$env_file" ]; then
         echo "Loading environment variables from: $env_file"
+        # Source the .env file
         set -a
-        (source "$env_file")
+        source "$env_file" 
         set +a
     else
         echo "Warning: .env file not found at: $env_file"
     fi
 }
 
+# Load environment variables
 load_env_file
 
+# Unset HTTP proxies that might be set by Docker daemon
 export http_proxy=""; export https_proxy=""; export no_proxy=""; export HTTP_PROXY=""; export HTTPS_PROXY=""; export NO_PROXY=""
 export PYTHONPATH=$(pwd)
 
 export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/
-JEMALLOC_PATH=$(pkg-config --variable=libdir jemalloc)/libjemalloc.so 2>/dev/null || JEMALLOC_PATH=""
+JEMALLOC_PATH=$(pkg-config --variable=libdir jemalloc)/libjemalloc.so
 
 PY=python3
 
+# Set default number of workers if WS is not set or less than 1
 if [[ -z "$WS" || $WS -lt 1 ]]; then
   WS=1
 fi
 
+# Maximum number of retries for each task executor and server
 MAX_RETRIES=5
+
+# Flag to control termination
 STOP=false
+
+# Array to keep track of child PIDs
 PIDS=()
+
+# Set the path to the NLTK data directory
 export NLTK_DATA="./nltk_data"
 
+# Function to handle termination signals
 cleanup() {
   echo "Termination signal received. Shutting down..."
   STOP=true
+  # Terminate all child processes
   for pid in "${PIDS[@]}"; do
     if kill -0 "$pid" 2>/dev/null; then
       echo "Killing process $pid"
@@ -49,8 +64,10 @@ cleanup() {
   exit 0
 }
 
+# Trap SIGINT and SIGTERM to invoke cleanup
 trap cleanup SIGINT SIGTERM
 
+# Function to execute task_executor with retry logic
 task_exe(){
     local task_id=$1
     local retry_count=0
@@ -74,6 +91,7 @@ task_exe(){
     fi
 }
 
+# Function to execute ragflow_server with retry logic
 run_server(){
     local retry_count=0
     while ! $STOP && [ $retry_count -lt $MAX_RETRIES ]; do
@@ -96,10 +114,6 @@ run_server(){
     fi
 }
 
-# -----------------------------------------------------------------
-# [删除] 移除了 run_mock_crawl4ai_server 函数
-# -----------------------------------------------------------------
-
 # Start task executors
 for ((i=0;i<WS;i++))
 do
@@ -107,12 +121,9 @@ do
   PIDS+=($!)
 done
 
-# -----------------------------------------------------------------
-# [删除] 移除了启动 mock_crawl4ai_server 的命令
-# -----------------------------------------------------------------
-
-# Start the main RAGFlow server
+# Start the main server
 run_server &
 PIDS+=($!)
 
+# Wait for all background processes to finish
 wait

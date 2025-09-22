@@ -484,7 +484,7 @@ def init_database_tables(alter_fields=[]):
     if create_failed_list:
         logging.error(f"create tables failed: {create_failed_list}")
         raise Exception(f"create tables failed: {create_failed_list}")
-
+    migrate_db()
 
 
 def fill_db_model_object(model_object, human_model_dict):

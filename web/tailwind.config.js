@@ -4,12 +4,6 @@ const { fontFamily } = require('tailwindcss/defaultTheme');
 
 module.exports = {
   darkMode: ['selector'],
-  // 关闭 Tailwind 的全局 reset（Preflight），避免与 antd/全局 less 冲突
-  // 当某个页面或组件引入 tailwind.css 时，默认的 Preflight 会影响 html/body/h1 等基础样式，
-  // 可能导致整个页面风格变化。关闭后仅保留工具类，不会修改基础样式。
-  corePlugins: {
-    preflight: false,
-  },
   content: [
     './src/pages/**/*.tsx',
     './src/components/**/*.tsx',

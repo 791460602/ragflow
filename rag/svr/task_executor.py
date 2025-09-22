@@ -268,11 +268,7 @@ async def build_chunks(task, progress_callback):
 
     try:
         async with chunk_limiter:
-            # Use the actual storage location name instead of task["name"] to avoid file not found errors
-            # Pass the actual filename from storage, but the binary data should be used for content
-            actual_filename = name if name else task["name"]
-            logging.info("Chunking with filename: '{}', binary size: {}".format(actual_filename, len(binary) if binary else 'None'))
-            cks = await trio.to_thread.run_sync(lambda: chunker.chunk(actual_filename, binary=binary, from_page=task["from_page"],
+            cks = await trio.to_thread.run_sync(lambda: chunker.chunk(task["name"], binary=binary, from_page=task["from_page"],
                                 to_page=task["to_page"], lang=task["language"], callback=progress_callback,
                                 kb_id=task["kb_id"], parser_config=task["parser_config"], tenant_id=task["tenant_id"]))
         logging.info("Chunking({}) {}/{} done".format(timer() - st, task["location"], task["name"]))

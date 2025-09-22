@@ -1,4 +1,4 @@
-from pathlib import Path
+import pathlib
 import re
 
 import flask
@@ -6,6 +6,9 @@ from flask import request
 
 from api.db.services.document_service import DocumentService
 from api.db.services.file2document_service import File2DocumentService
+from api.utils.api_utils import server_error_response, token_required
+from api.utils import get_uuid
+from api.db import FileType
 from api.db.services import duplicate_name
 from api.db.services.file_service import FileService
 from api.utils.api_utils import get_json_result
@@ -99,12 +102,12 @@ def upload(tenant_id):
                 e, file = FileService.get_by_id(file_id_list[len_id_list - 1])
                 if not e:
                     return get_json_result(data=False, message="Folder not found!", code=404)
-                last_folder = FileService.create_folder_with_tenant(file, file_id_list[len_id_list - 1], file_obj_names, len_id_list, tenant_id)
+                last_folder = FileService.create_folder(file, file_id_list[len_id_list - 1], file_obj_names, len_id_list)
             else:
                 e, file = FileService.get_by_id(file_id_list[len_id_list - 2])
                 if not e:
                     return get_json_result(data=False, message="Folder not found!", code=404)
-                last_folder = FileService.create_folder_with_tenant(file, file_id_list[len_id_list - 2], file_obj_names, len_id_list, tenant_id)
+                last_folder = FileService.create_folder(file, file_id_list[len_id_list - 2], file_obj_names, len_id_list)
 
             filetype = filename_type(file_obj_names[file_len - 1])
             location = file_obj_names[file_len - 1]
@@ -247,7 +250,7 @@ def convert(tenant_id):
                         "created_by": tenant_id,
                         "type": file.type,
                         "name": file.name,
-                        "suffix": Path(file.name).suffix.lstrip("."),
+                        "suffix": pathlib.Path(file.name).suffix.lstrip("."),
                         "location": file.location,
                         "size": file.size
                     })
