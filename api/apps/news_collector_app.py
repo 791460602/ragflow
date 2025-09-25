@@ -29,7 +29,7 @@ from datetime import datetime, timedelta
 
 # ========== 新闻源管理 CRUD ==========
 
-@manager.route('/news_collector/sources', methods=['GET'])  # noqa: F821
+@manager.route('/sources', methods=['GET'])  # noqa: F821
 @login_required
 def list_news_sources():
     """获取新闻源列表"""
@@ -58,7 +58,7 @@ def list_news_sources():
         return server_error_response(e)
 
 
-@manager.route('/news_collector/sources', methods=['POST'])  # noqa: F821
+@manager.route('/sources', methods=['POST'])  # noqa: F821
 @login_required
 @validate_request('name', 'url')
 def create_news_source():
@@ -78,7 +78,7 @@ def create_news_source():
         return server_error_response(e)
 
 
-@manager.route('/news_collector/sources/<source_id>', methods=['GET'])  # noqa: F821
+@manager.route('/sources/<source_id>', methods=['GET'])  # noqa: F821
 @login_required
 def get_news_source(source_id):
     """获取单个新闻源详情"""
@@ -99,7 +99,7 @@ def get_news_source(source_id):
         return server_error_response(e)
 
 
-@manager.route('/news_collector/sources/<source_id>', methods=['PUT'])  # noqa: F821
+@manager.route('/sources/<source_id>', methods=['PUT'])  # noqa: F821
 @login_required
 def update_news_source(source_id):
     """更新新闻源"""
@@ -119,7 +119,7 @@ def update_news_source(source_id):
         return server_error_response(e)
 
 
-@manager.route('/news_collector/sources/<source_id>', methods=['DELETE'])  # noqa: F821
+@manager.route('/sources/<source_id>', methods=['DELETE'])  # noqa: F821
 @login_required
 def delete_news_source(source_id):
     """删除新闻源"""
@@ -140,7 +140,7 @@ def delete_news_source(source_id):
 
 # ========== 任务管理 CRUD ==========
 
-@manager.route('/news_collector/tasks', methods=['GET'])  # noqa: F821
+@manager.route('/tasks', methods=['GET'])  # noqa: F821
 @login_required
 def list_news_tasks():
     """获取新闻任务列表"""
@@ -169,7 +169,7 @@ def list_news_tasks():
         return server_error_response(e)
 
 
-@manager.route('/news_collector/tasks', methods=['POST'])  # noqa: F821
+@manager.route('/tasks', methods=['POST'])  # noqa: F821
 @login_required
 @validate_request('task_name', 'kb_id')
 def create_news_task():
@@ -191,7 +191,7 @@ def create_news_task():
         return server_error_response(e)
 
 
-@manager.route('/news_collector/tasks/<task_id>', methods=['GET'])  # noqa: F821
+@manager.route('/tasks/<task_id>', methods=['GET'])  # noqa: F821
 @login_required
 def get_news_task(task_id):
     """获取单个新闻任务详情"""
@@ -212,7 +212,7 @@ def get_news_task(task_id):
         return server_error_response(e)
 
 
-@manager.route('/news_collector/tasks/<task_id>', methods=['PUT'])  # noqa: F821
+@manager.route('/tasks/<task_id>', methods=['PUT'])  # noqa: F821
 @login_required
 def update_news_task(task_id):
     """更新新闻任务"""
@@ -233,7 +233,7 @@ def update_news_task(task_id):
         return server_error_response(e)
 
 
-@manager.route('/news_collector/tasks/<task_id>', methods=['DELETE'])  # noqa: F821
+@manager.route('/tasks/<task_id>', methods=['DELETE'])  # noqa: F821
 @login_required
 def delete_news_task(task_id):
     """删除新闻任务"""
@@ -256,7 +256,7 @@ def delete_news_task(task_id):
         return server_error_response(e)
 
 
-@manager.route('/news_collector/tasks/<task_id>/execute', methods=['POST'])  # noqa: F821
+@manager.route('/tasks/<task_id>/execute', methods=['POST'])  # noqa: F821
 @login_required
 def execute_news_task(task_id):
     """执行新闻任务"""
@@ -289,7 +289,7 @@ def execute_news_task(task_id):
         return server_error_response(e)
 
 
-@manager.route('/news_collector/tasks/<task_id>/stop', methods=['POST'])  # noqa: F821
+@manager.route('/tasks/<task_id>/stop', methods=['POST'])  # noqa: F821
 @login_required
 def stop_news_task(task_id):
     """停止新闻任务"""
@@ -314,7 +314,7 @@ def stop_news_task(task_id):
 
 # ========== 内容管理 ==========
 
-@manager.route('/news_collector/contents', methods=['GET'])  # noqa: F821
+@manager.route('/contents', methods=['GET'])  # noqa: F821
 @login_required
 def list_news_contents():
     """获取新闻内容列表"""
@@ -350,7 +350,7 @@ def list_news_contents():
         return server_error_response(e)
 
 
-@manager.route('/news_collector/contents/<content_id>', methods=['GET'])  # noqa: F821
+@manager.route('/contents/<content_id>', methods=['GET'])  # noqa: F821
 @login_required
 def get_news_content(content_id):
     """获取单个新闻内容详情"""
@@ -371,7 +371,7 @@ def get_news_content(content_id):
         return server_error_response(e)
 
 
-@manager.route('/news_collector/contents/<content_id>', methods=['DELETE'])  # noqa: F821
+@manager.route('/contents/<content_id>', methods=['DELETE'])  # noqa: F821
 @login_required
 def delete_news_content(content_id):
     """删除新闻内容"""
@@ -396,7 +396,7 @@ def delete_news_content(content_id):
 
 # ========== 统计分析 ==========
 
-@manager.route('/news_collector/statistics', methods=['GET'])  # noqa: F821
+@manager.route('/statistics', methods=['GET'])  # noqa: F821
 @login_required
 def get_news_statistics():
     """获取新闻收集统计信息"""
@@ -438,7 +438,7 @@ def get_news_statistics():
 
 # ========== 系统功能 ==========
 
-@manager.route('/news_collector/ping', methods=['GET'])  # noqa: F821
+@manager.route('/ping', methods=['GET'])  # noqa: F821
 @login_required
 def ping():
     """服务状态检查"""
@@ -454,7 +454,7 @@ def ping():
         return server_error_response(e)
 
 
-@manager.route('/news_collector/crawlers', methods=['GET'])  # noqa: F821
+@manager.route('/crawlers', methods=['GET'])  # noqa: F821
 @login_required
 def get_available_crawlers():
     """获取可用爬虫列表"""
