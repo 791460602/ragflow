@@ -141,80 +141,38 @@ def upload(tenant_id):
 def convert(tenant_id):
     """
     Convert files to documents and link them to datasets.
-    ---
-    tags:
-      - File Management
-    security:
-      - ApiKeyAuth: []
-    parameters:
-      - in: body
-        name: body
-        description: File to document conversion parameters
-        required: true
-        schema:
-          type: object
-          properties:
-            file_ids:
-              type: array
-              items:
-                type: string
-              description: List of file IDs to convert
-            kb_ids:
-              type: array
-              items:
-                type: string
-              description: List of knowledge base IDs to link documents to
-    responses:
-      200:
-        description: Successfully converted files to documents
-        schema:
-          type: object
-          properties:
-            data:
-              type: array
-              items:
-                type: object
-                properties:
-                  id:
-                    type: string
-                  file_id:
-                    type: string
-                  document_id:
-                    type: string
+    ...
     """
     req = request.json
-    
     if not req or 'file_ids' not in req or 'kb_ids' not in req:
         return get_json_result(
-            data=False, 
-            message='Missing required parameters: file_ids, kb_ids', 
+            data=False,
+            message='Missing required parameters: file_ids, kb_ids',
             code=settings.RetCode.ARGUMENT_ERROR
         )
-    
+
     kb_ids = req["kb_ids"]
     file_ids = req["file_ids"]
     file2documents = []
 
     try:
         files = FileService.get_by_ids(file_ids)
-        files_set = dict({file.id: file for file in files})
-        
+        files_set = {file.id: file for file in files}
+
         for file_id in file_ids:
             file = files_set.get(file_id)
             if not file:
                 return get_data_error_result(message="File not found!")
-                
-            # Check if file belongs to tenant
             if file.tenant_id != tenant_id:
                 return get_data_error_result(message="No permission to access this file!")
-                
+
             file_ids_list = [file_id]
             if file.type == FileType.FOLDER.value:
                 file_ids_list = FileService.get_all_innermost_file_ids(file_id, [])
-                
-            for id in file_ids_list:
-                informs = File2DocumentService.get_by_file_id(id)
-                # delete existing mappings
+
+            for fid in file_ids_list:  # 建议改名避免与外层 id 冲突
+                # 删除旧映射
+                informs = File2DocumentService.get_by_file_id(fid)
                 for inform in informs:
                     doc_id = inform.document_id
                     e, doc = DocumentService.get_by_id(doc_id)
@@ -224,45 +182,40 @@ def convert(tenant_id):
                     if not doc_tenant_id:
                         return get_data_error_result(message="Tenant not found!")
                     if not DocumentService.remove_document(doc, doc_tenant_id):
-                        return get_data_error_result(
-                            message="Database error (Document removal)!")
-                File2DocumentService.delete_by_file_id(id)
+                        return get_data_error_result(message="Database error (Document removal)!")
+                File2DocumentService.delete_by_file_id(fid)
 
-                # insert new mappings
+                # 创建新映射
                 for kb_id in kb_ids:
                     e, kb = KnowledgebaseService.get_by_id(kb_id)
                     if not e:
-                        return get_data_error_result(
-                            message="Can't find this knowledgebase!")
-                    
-                    # Check if kb belongs to tenant
+                        return get_data_error_result(message="Knowledge base not found!")
                     if kb.tenant_id != tenant_id:
                         return get_data_error_result(message="No permission to access this knowledge base!")
-                        
-                    e, file = FileService.get_by_id(id)
+
+                    e, file_obj = FileService.get_by_id(fid)
                     if not e:
-                        return get_data_error_result(
-                            message="Can't find this file!")
+                        return get_data_error_result(message="File not found!")
 
                     doc = DocumentService.insert({
                         "id": get_uuid(),
                         "kb_id": kb.id,
-                        "parser_id": FileService.get_parser(file.type, file.name, kb.parser_id),
+                        "parser_id": FileService.get_parser(file_obj.type, file_obj.name, kb.parser_id),
                         "parser_config": kb.parser_config,
                         "created_by": tenant_id,
-                        "type": file.type,
-                        "name": file.name,
-                        "suffix": pathlib.Path(file.name).suffix.lstrip("."),
-                        "location": file.location,
-                        "size": file.size
+                        "type": file_obj.type,
+                        "name": file_obj.name,
+                        "suffix": Path(file_obj.name).suffix.lstrip("."),
+                        "location": file_obj.location,
+                        "size": file_obj.size
                     })
-                    file2document = File2DocumentService.insert({
+                    f2d = File2DocumentService.insert({
                         "id": get_uuid(),
-                        "file_id": id,
+                        "file_id": fid,
                         "document_id": doc.id,
                     })
+                    file2documents.append(f2d.to_json())
 
-                    file2documents.append(file2document.to_json())
         return get_json_result(data=file2documents)
     except Exception as e:
         return server_error_response(e)
@@ -805,73 +758,5 @@ def move(tenant_id):
 
         FileService.move_file(file_ids, parent_id)
         return get_json_result(data=True)
-    except Exception as e:
-        return server_error_response(e)
-
-@manager.route('/file/convert', methods=['POST'])  # noqa: F821
-@token_required
-def convert(tenant_id):
-    req = request.json
-    kb_ids = req["kb_ids"]
-    file_ids = req["file_ids"]
-    file2documents = []
-
-    try:
-        files = FileService.get_by_ids(file_ids)
-        files_set = dict({file.id: file for file in files})
-        for file_id in file_ids:
-            file = files_set[file_id]
-            if not file:
-                return get_json_result(message="File not found!", code=404)
-            file_ids_list = [file_id]
-            if file.type == FileType.FOLDER.value:
-                file_ids_list = FileService.get_all_innermost_file_ids(file_id, [])
-            for id in file_ids_list:
-                informs = File2DocumentService.get_by_file_id(id)
-                # delete
-                for inform in informs:
-                    doc_id = inform.document_id
-                    e, doc = DocumentService.get_by_id(doc_id)
-                    if not e:
-                        return get_json_result(message="Document not found!", code=404)
-                    tenant_id = DocumentService.get_tenant_id(doc_id)
-                    if not tenant_id:
-                        return get_json_result(message="Tenant not found!", code=404)
-                    if not DocumentService.remove_document(doc, tenant_id):
-                        return get_json_result(
-                            message="Database error (Document removal)!", code=404)
-                File2DocumentService.delete_by_file_id(id)
-
-                # insert
-                for kb_id in kb_ids:
-                    e, kb = KnowledgebaseService.get_by_id(kb_id)
-                    if not e:
-                        return get_json_result(
-                            message="Can't find this knowledgebase!", code=404)
-                    e, file = FileService.get_by_id(id)
-                    if not e:
-                        return get_json_result(
-                            message="Can't find this file!", code=404)
-
-                    doc = DocumentService.insert({
-                        "id": get_uuid(),
-                        "kb_id": kb.id,
-                        "parser_id": FileService.get_parser(file.type, file.name, kb.parser_id),
-                        "parser_config": kb.parser_config,
-                        "created_by": tenant_id,
-                        "type": file.type,
-                        "name": file.name,
-                        "suffix": Path(file.name).suffix.lstrip("."),
-                        "location": file.location,
-                        "size": file.size
-                    })
-                    file2document = File2DocumentService.insert({
-                        "id": get_uuid(),
-                        "file_id": id,
-                        "document_id": doc.id,
-                    })
-
-                    file2documents.append(file2document.to_json())
-        return get_json_result(data=file2documents)
     except Exception as e:
         return server_error_response(e)
