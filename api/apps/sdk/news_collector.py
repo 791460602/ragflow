@@ -43,8 +43,6 @@ import re  # 新增: 用于清理文件名
 import aiofiles  # 确保在文件顶部导入
 from flask import Blueprint
 
-# 设置独特的页面名称以避免与 news_collector_app.py 冲突
-#page_name = "news_collector_sdk"
 
 # =================================================================================
 # LibraryCrawler 类 (最终修正版)
@@ -179,103 +177,46 @@ async def _async_crawl_from_post_worker(tenant_id: str, source_ids: list, depth:
     """
     (已重构) 异步任务核心：
     1. 从数据库加载所有已存在的哈希值。
-    2. 将哈希集合传入爬虫，由爬虫进行"边抓取、边检查"。
-    3. 只对爬虫返回的"全新内容"进行存储和数据库更新。
+    2. 将哈希集合传入爬虫，由爬虫进行“边抓取、边检查”。
+    3. 只对爬虫返回的“全新内容”进行存储和数据库更新。
     """
-    print("⚡ ======= 异步任务: _async_crawl_from_post_worker =======")
-    print(f"🎯 异步任务参数:")
-    print(f"  - tenant_id: {tenant_id}")
-    print(f"  - source_ids: {source_ids} (数量: {len(source_ids)})")
-    print(f"  - depth: {depth}")
-    print(f"  - max_pages: {max_pages}")
     print(f"[后台任务] 开始处理 {len(source_ids)} 个新闻源... (深度: {depth}, 每源最大页数: {max_pages})")
     
-    # 1. 跳过数据库查询，使用基于文件的去重
-    print("📚 第1步: 跳过数据库查询，使用基于文件的去重...")
-    content_hashes = set()
-    
-    # 从已有的JSON文件中加载历史哈希（可选的文件去重）
-    base_dir = "crawl4ai_data"
-    if os.path.exists(base_dir):
-        try:
-            import glob
-            json_files = glob.glob(os.path.join(base_dir, "**/*.json"), recursive=True)
-            for json_file in json_files:
-                if "news_sources_total.json" in json_file:
-                    continue  # 跳过配置文件
-                try:
-                    with open(json_file, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        if 'content_hash' in data:
-                            content_hashes.add(data['content_hash'])
-                except:
-                    continue
-            print(f"✅ 从现有文件加载了 {len(content_hashes)} 个历史内容哈希")
-        except Exception as e:
-            print(f"⚠️ 从文件加载历史哈希失败: {e}，将使用空哈希集合")
-    else:
-        print("📁 crawl4ai_data 目录不存在，将使用空哈希集合")
+    try:
+        content_hashes = NewsContentService.get_all_content_hashes(tenant_id)
+        print(f"[后台任务] 成功从数据库加载 {len(content_hashes)} 个已存在的历史内容哈希。")
+    except Exception as e:
+        print(f"[后台任务] 严重错误: 从数据库加载历史哈希失败: {e}")
+        content_hashes = set()
 
-    # 2. 初始化爬虫和任务ID
-    print("🤖 第2步: 初始化爬虫和任务ID...")
     crawler = LibraryCrawler()
     instant_task_id = get_uuid()
-    print(f"🆔 任务ID: {instant_task_id}")
 
-    # 3. 从数据库加载新闻源配置
-    print("🗄️ 第3步: 从数据库加载新闻源配置...")
     sources_from_db = []
-    for i, sid in enumerate(source_ids):
-        print(f"📖 正在查询第 {i+1}/{len(source_ids)} 个新闻源: ID={sid}")
+    for sid in source_ids:
         try:
             _, source_model = NewsSourceService.get_by_id(sid)
             if source_model:
-                source_dict = NewsSourceService.to_dict(source_model)
-                sources_from_db.append(source_dict)
-                print(f"✅ 成功加载新闻源: {source_dict.get('name')} - {source_dict.get('url')}")
-                print(f"📝 新闻源配置: 模式={source_dict.get('remark')}, fetch_config={source_dict.get('fetch_config')}")
+                sources_from_db.append(NewsSourceService.to_dict(source_model))
             else:
-                print(f"⚠️ 未在数据库中找到 ID 为 {sid} 的新闻源")
+                print(f"[后台任务] 警告: 未在数据库中找到 ID 为 {sid} 的新闻源。")
         except Exception as e:
-            print(f"❌ 查询新闻源 {sid} 时出错: {e}")
-            traceback.print_exc()
-    
-    print(f"📊 数据库查询结果: 成功加载 {len(sources_from_db)}/{len(source_ids)} 个新闻源")
-    if len(sources_from_db) == 0:
-        print("❌ 没有可用的新闻源，任务退出")
-        return
+            print(f"[后台任务] 错误: 查询新闻源 {sid} 时出错: {e}")
 
-    # 4. 开始逐个处理新闻源
-    print("🕷️ 第4步: 开始逐个处理新闻源...")
     total_new_articles_saved = 0
     for i, source in enumerate(sources_from_db):
         source_id = source.get("id")
         source_name = source.get("name")
         start_url = source.get("url")
-        remark = source.get("remark")
-        fetch_config = source.get("fetch_config")
         
-        print(f"\n🎯 ======= 处理第 {i + 1}/{len(sources_from_db)} 个源 =======")
-        print(f"📄 新闻源信息:")
-        print(f"  - ID: {source_id}")
-        print(f"  - 名称: {source_name}")
-        print(f"  - URL: {start_url}")
-        print(f"  - 模式: {remark} ({'精确模式' if remark == '1' else '自动模式'})")
-        print(f"  - fetch_config: {fetch_config}")
+        print(f"\n[后台任务] 正在处理第 {i + 1}/{len(sources_from_db)} 个源: {source_name} ({start_url})")
 
         if not start_url:
-            print("⚠️ 跳过: 新闻源URL为空")
             continue
         
-        # 选择抓取模式
-        selectors = fetch_config if remark == "1" else None
-        print(f"🔧 选择的抓取配置: {selectors if selectors else '自动模式（无选择器）'}")
+        selectors = source.get("fetch_config") if source.get("remark") == "1" else None
 
         try:
-            print("🕷️ 开始调用爬虫...")
-            print(f"🔍 爬虫参数: start_url={start_url}, depth={depth}, max_pages={max_pages}")
-            print(f"📊 已有哈希数量: {len(content_hashes)}")
-            
             new_articles = await crawler.recursive_crawl(
                 start_url=start_url, 
                 depth=depth, 
@@ -283,8 +224,6 @@ async def _async_crawl_from_post_worker(tenant_id: str, source_ids: list, depth:
                 persistent_hashes=content_hashes,
                 selectors=selectors
             )
-            
-            print(f"✅ 爬虫返回结果: {len(new_articles) if new_articles else 0} 篇新文章")
             
             if not new_articles:
                 print(f"[后台任务] 源 '{source_name}' 未发现任何新内容。")
@@ -312,185 +251,24 @@ async def _async_crawl_from_post_worker(tenant_id: str, source_ids: list, depth:
                 # ===================================================================
                 print(f"[文件存储] 成功保存新页面: {output_file}")
                 
-                # 文件保存成功，计数+1
-                total_new_articles_saved += 1
-
-        except Exception as e:
-            print(f"[后台任务] 处理源 {source_name} 时发生严重错误: {e}")
-            traceback.print_exc()
-
-    print(f"\n[后台任务] 所有新闻源处理完毕。本次任务共发现并保存了 {total_new_articles_saved} 篇全新内容到文件系统。")
-
-
-async def _async_crawl_from_sources_worker(tenant_id: str, sources: list, depth: int, max_pages: int):
-    """
-    新的异步任务核心：
-    1. 直接使用传入的sources配置，不从数据库查询
-    2. 只将抓取结果保存到文件，不保存到数据库
-    3. 支持精确模式的CSS选择器配置
-    """
-    print("⚡ ======= 异步任务: _async_crawl_from_sources_worker =======")
-    print(f"🎯 异步任务参数:")
-    print(f"  - tenant_id: {tenant_id}")
-    print(f"  - sources: {len(sources)} 个新闻源配置")
-    print(f"  - depth: {depth}")
-    print(f"  - max_pages: {max_pages}")
-    print(f"[后台任务] 开始处理 {len(sources)} 个新闻源... (深度: {depth}, 每源最大页数: {max_pages})")
-    print("[后台任务] 模式: 配置驱动（不使用数据库）")
-    
-    # 1. 跳过数据库查询，使用基于文件的去重
-    print("📚 第1步: 跳过数据库查询，使用基于文件的去重...")
-    content_hashes = set()
-    
-    # 从已有的JSON文件中加载历史哈希（可选的文件去重）
-    base_dir = "crawl4ai_data"
-    if os.path.exists(base_dir):
-        try:
-            import glob
-            json_files = glob.glob(os.path.join(base_dir, "**/*.json"), recursive=True)
-            for json_file in json_files:
-                if "news_sources_total.json" in json_file:
-                    continue  # 跳过配置文件
                 try:
-                    with open(json_file, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        if 'content_hash' in data:
-                            content_hashes.add(data['content_hash'])
-                except:
-                    continue
-            print(f"✅ 从现有文件加载了 {len(content_hashes)} 个历史内容哈希")
-        except Exception as e:
-            print(f"⚠️ 从文件加载历史哈希失败: {e}，将使用空哈希集合")
-    else:
-        print("📁 crawl4ai_data 目录不存在，将使用空哈希集合")
-
-    # 2. 初始化爬虫和任务ID
-    print("🤖 第2步: 初始化爬虫和任务ID...")
-    crawler = LibraryCrawler()
-    instant_task_id = get_uuid()
-    print(f"🆔 任务ID: {instant_task_id}")
-
-    # 3. 开始逐个处理新闻源
-    print("🕷️ 第3步: 开始逐个处理新闻源...")
-    total_new_articles_saved = 0
-    for i, source in enumerate(sources):
-        source_name = source.get("url", f"源{i+1}")
-        start_url = source.get("url")
-        
-        print(f"\n🎯 ======= 处理第 {i + 1}/{len(sources)} 个源 =======")
-        print(f"📄 新闻源信息:")
-        print(f"  - URL: {start_url}")
-        print(f"  - 模式: 精确模式（使用选择器）")
-        print(f"  - link_selector: {source.get('link_selector')}")
-        print(f"  - content_selector: {source.get('content_selector')}")
-        print(f"  - title_selector: {source.get('title_selector')}")
-
-        if not start_url:
-            print(f"⚠️ 跳过: 第 {i+1} 个源缺少URL")
-            continue
-        
-        # 构建CSS选择器配置（精确模式）
-        selectors = {}
-        if source.get("link_selector"):
-            selectors["link_selector"] = source.get("link_selector")
-        if source.get("title_selector"):
-            selectors["title_selector"] = source.get("title_selector")
-        if source.get("content_selector"):
-            selectors["content_selector"] = source.get("content_selector")
-        if source.get("publication_time_selector"):
-            selectors["publication_time_selector"] = source.get("publication_time_selector")
-        if source.get("author_selector"):
-            selectors["author_selector"] = source.get("author_selector")
-        
-        # 如果有选择器配置，使用精确模式
-        use_selectors = selectors if selectors else None
-        print(f"🔧 选择的抓取配置: {use_selectors if use_selectors else '自动模式（无选择器）'}")
-
-        try:
-            print("🕷️ 开始调用爬虫...")
-            print(f"🔍 爬虫参数: start_url={start_url}, depth={depth}, max_pages={max_pages}")
-            print(f"📊 已有哈希数量: {len(content_hashes)}")
-            
-            new_articles = await crawler.recursive_crawl(
-                start_url=start_url, 
-                depth=depth, 
-                max_pages=max_pages, 
-                persistent_hashes=content_hashes,
-                selectors=use_selectors
-            )
-            
-            print(f"✅ 爬虫返回结果: {len(new_articles) if new_articles else 0} 篇新文章")
-            
-            if not new_articles:
-                print(f"[后台任务] 源 '{source_name}' 未发现任何新内容。")
-                continue
-            
-            print(f"[后台任务] 源 '{source_name}' 发现 {len(new_articles)} 篇新内容，开始保存...")
-
-            for page_data in new_articles:
-                content_hash = page_data.get("content_hash")
-
-                page_title = _sanitize_filename(page_data.get("title", "untitled"))
-                timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-                filename = f"{page_title}_{timestamp}_{content_hash[:16]}.json"
-
-                site_domain = _sanitize_filename(urlparse(start_url).netloc)
-                output_dir = os.path.join(base_dir, site_domain)
-                output_file = os.path.join(output_dir, filename)
-
-                os.makedirs(output_dir, exist_ok=True)
-                
-                # 保存到文件
-                async with aiofiles.open(output_file, "w", encoding="utf-8") as f:
-                    await f.write(json.dumps(page_data, ensure_ascii=False, indent=2))
-                print(f"[文件存储] 成功保存新页面: {output_file}")
-                
-                total_new_articles_saved += 1
-                # 添加到哈希集合，避免重复处理
-                content_hashes.add(content_hash)
+                    NewsContentService.create_content(
+                        tenant_id=tenant_id, task_id=instant_task_id, source_id=source_id, article_data=page_data
+                    )
+                    print(f"[数据库同步] 成功将新内容 '{page_title}' 同步到数据库。")
+                    total_new_articles_saved += 1
+                except Exception as e:
+                    print(f"[数据库同步] 警告: 写入数据库失败: {e}")
 
         except Exception as e:
             print(f"[后台任务] 处理源 {source_name} 时发生严重错误: {e}")
             traceback.print_exc()
 
-    print(f"\n[后台任务] 所有新闻源处理完毕。本次任务共发现并保存了 {total_new_articles_saved} 篇全新内容到文件系统。")
-
+    print(f"\n[后台任务] 所有新闻源处理完毕。本次任务共发现并存储了 {total_new_articles_saved} 篇全新内容。")
 
 def _background_crawl_from_post_wrapper(tenant_id: str, source_ids: list, depth: int, max_pages: int):
     """同步的包装函数，在线程中启动asyncio事件循环。"""
-    print("🧵 ======= 后台线程: _background_crawl_from_post_wrapper =======")
-    print(f"🆔 线程ID: {threading.current_thread().ident}")
-    print(f"🎯 接收到的参数:")
-    print(f"  - tenant_id: {tenant_id}")
-    print(f"  - source_ids: {source_ids}")
-    print(f"  - depth: {depth}")
-    print(f"  - max_pages: {max_pages}")
-    
-    try:
-        print("⚡ 准备启动asyncio事件循环...")
-        asyncio.run(_async_crawl_from_post_worker(tenant_id, source_ids, depth, max_pages))
-        print("✅ asyncio事件循环执行完毕")
-    except Exception as e:
-        print(f"❌ asyncio执行失败: {str(e)}")
-        traceback.print_exc()
-
-def _background_crawl_from_sources_wrapper(tenant_id: str, sources: list, depth: int, max_pages: int):
-    """新的包装函数，直接使用sources配置进行抓取。"""
-    print("🧵 ======= 后台线程: _background_crawl_from_sources_wrapper =======")
-    print(f"🆔 线程ID: {threading.current_thread().ident}")
-    print(f"🎯 接收到的参数:")
-    print(f"  - tenant_id: {tenant_id}")
-    print(f"  - sources: {len(sources)} 个新闻源配置")
-    print(f"  - depth: {depth}")
-    print(f"  - max_pages: {max_pages}")
-    
-    try:
-        print("⚡ 准备启动asyncio事件循环...")
-        asyncio.run(_async_crawl_from_sources_worker(tenant_id, sources, depth, max_pages))
-        print("✅ asyncio事件循环执行完毕")
-    except Exception as e:
-        print(f"❌ asyncio执行失败: {str(e)}")
-        traceback.print_exc()
+    asyncio.run(_async_crawl_from_post_worker(tenant_id, source_ids, depth, max_pages))
 
 
 # ========== 爬虫核心框架 ==========
@@ -920,31 +698,18 @@ def get_available_crawlers_api(tenant_id):
 
 @manager.route("/news_collector/sources", methods=["GET"])
 @token_required
-def list_news_sources(tenant_id): # tenant_id由装饰器提取，作为参数传入
+def list_news_sources(tenant_id):
     """获取新闻源列表"""
-    print("=" * 50)
-    print("🚀 [DEBUG] list_news_sources 函数被调用!")
-    print(f"🔑 [DEBUG] Token验证通过, tenant_id: {tenant_id}")
-    print("=" * 50)
     try:
         page = int(request.args.get("page", 1))
         page_size = int(request.args.get("page_size", 20))
         name = request.args.get("name")
         status = request.args.get("status")
-        
-        print(f"[DEBUG] 新闻源列表查询参数: tenant_id={tenant_id}, page={page}, page_size={page_size}, name={name}, status={status}")
-        print(f"[DEBUG] 请求URL: {request.url}")
-        print(f"[DEBUG] 请求方法: {request.method}")
-        
+
         sources, total = NewsSourceService.get_by_tenant_id(tenant_id=tenant_id, page=page, page_size=page_size, name=name, status=status)
-        print(f"[DEBUG] 查询结果: 返回{len(sources)}条记录，总计{total}条")
         return get_json_result(data={"sources": sources, "total": total, "page": page, "page_size": page_size})
 
     except Exception as e:
-        print(f"❌ [ERROR] list_news_sources 发生异常: {str(e)}")
-        print(f"❌ [ERROR] 异常类型: {type(e).__name__}")
-        import traceback
-        print(f"❌ [ERROR] 堆栈跟踪: {traceback.format_exc()}")
         return server_error_response(e)
 
 
@@ -1244,74 +1009,26 @@ def get_news_statistics(tenant_id):
 @token_required
 def crawl_from_post_api(tenant_id):
     """
-    接收包含完整新闻源配置的对象，并启动即时抓取任务。
-    请求格式：
-    {
-        "depth": 2,
-        "max_pages_per_source": 100,
-        "sources": [
-            {
-                "url": "https://www.nea.gov.cn",
-                "link_selector": "div.news_area a[href]",
-                "title_selector": "h2.article_title, h1",
-                "content_selector": "div.article-content",
-                "publication_time_selector": "span.date",
-                "author_selector": "span.author"
-            }
-        ]
-    }
+    (已重构) 接收一个包含新闻源ID列表和控制参数的对象，
+    并为它们启动一个即时的、数据库驱动的后台抓取任务。
     """
-    print("🚀 ======= 后端API: crawl_from_post_api =======")
-    print(f"🔑 Token验证通过, tenant_id: {tenant_id}")
-    print(f"📡 请求方法: {request.method}")
-    print(f"🌐 请求URL: {request.url}")
-    print(f"📋 请求头: {dict(request.headers)}")
-    
     req_data = request.get_json()
-    print(f"📝 接收到的原始请求数据: {req_data}")
 
-    sources = req_data.get("sources")
+    source_ids = req_data.get("source_ids")
     depth = int(req_data.get("depth", 2))
     max_pages_per_source = int(req_data.get("max_pages_per_source", 50))
-    
-    print(f"📊 解析后的参数:")
-    print(f"  - sources: {len(sources) if sources else 0} 个源 (类型: {type(sources)})")
-    print(f"  - depth: {depth}")
-    print(f"  - max_pages_per_source: {max_pages_per_source}")
 
-    if not isinstance(sources, list) or not sources:
-        error_msg = "请求体必须包含一个名为 'sources' 的非空数组。"
-        print(f"❌ 参数验证失败: {error_msg}")
-        return get_json_result(code=400, message=error_msg)
-
-    # 验证每个source必须包含url
-    for i, source in enumerate(sources):
-        if not source.get("url"):
-            error_msg = f"第 {i+1} 个新闻源缺少必需的 'url' 字段。"
-            print(f"❌ 参数验证失败: {error_msg}")
-            return get_json_result(code=400, message=error_msg)
+    if not isinstance(source_ids, list) or not source_ids:
+        return get_json_result(code=400, message="请求体必须包含一个名为 'source_ids' 的非空数组。")
 
     try:
-        print(f"🧵 准备启动后台线程...")
-        print(f"🎯 后台任务参数: tenant_id={tenant_id}, sources={len(sources)}个, depth={depth}, max_pages={max_pages_per_source}")
-        
-        # 显示源配置概览
-        for i, source in enumerate(sources):
-            print(f"📋 源 {i+1}: {source.get('url')} ({'精确模式' if source.get('link_selector') else '自动模式'})")
-        
-        # 启动后台抓取任务，直接传递sources配置
-        thread = threading.Thread(target=_background_crawl_from_sources_wrapper, args=(tenant_id, sources, depth, max_pages_per_source))
+        # 将 tenant_id 传递给后台线程
+        thread = threading.Thread(target=_background_crawl_from_post_wrapper, args=(tenant_id, source_ids, depth, max_pages_per_source))
         thread.start()
-        print(f"✅ 后台线程启动成功，线程ID: {thread.ident}")
 
-        response_message = f"已成功启动后台即时抓取任务，将处理 {len(sources)} 个新闻源。"
-        print(f"📤 准备返回响应: {response_message}")
-        
-        return get_json_result(data={"message": response_message})
+        return get_json_result(data={"message": f"已成功启动后台即时抓取任务，将从数据库加载并处理 {len(source_ids)} 个新闻源。"})
 
     except Exception as e:
-        print(f"❌ 启动后台任务失败: {str(e)}")
-        print("❌ 完整错误堆栈:")
         traceback.print_exc()
         return server_error_response(e)
     

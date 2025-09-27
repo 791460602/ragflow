@@ -16,20 +16,13 @@ interface NewsSource {
 }
 
 interface CrawlRequest {
-  sources: {
-    url: string;
-    link_selector?: string;
-    title_selector?: string;
-    content_selector?: string;
-    publication_time_selector?: string;
-    author_selector?: string;
-  }[];
+  source_ids: string[];
   depth?: number;
   max_pages_per_source?: number;
 }
 
 interface PaginatedResponse<T> {
-  sources: T[];  // 新闻源数组在 sources 字段
+  source: T[];//##############################
   total: number;
   page: number;
   page_size: number;
@@ -74,7 +67,7 @@ export const getNewsSources = async (apiKey: string, params?: {
     '?' + new URLSearchParams(cleanParams as Record<string, string>).toString() : '';
   
   const fullUrl = `${API_BASE}/sources${queryString}`;
-  console.log('获取新闻源API请求URL:', fullUrl);// /api/v1/news_collector/sources?page=1&page_size=10
+  console.log('获取新闻源API请求URL:', fullUrl);
   console.log('请求头:', getAuthHeaders(apiKey));
   
   try {
@@ -143,36 +136,13 @@ export const getNewsSource = (apiKey: string, id: string) =>
 
 // 即时抓取功能
 export const crawlFromPost = async (apiKey: string, data: CrawlRequest) => {
-  console.log('🌐 ======= NewsCollectorService.crawlFromPost =======');
-  console.log('📡 API_BASE:', API_BASE);
-  console.log('🔗 完整URL:', `${API_BASE}/crawl_from_post`);
-  console.log('📝 请求数据:', JSON.stringify(data, null, 2));
-  console.log('🔑 请求头:', getAuthHeaders(apiKey));
-  
   try {
-    console.log('⏳ 发送HTTP POST请求...');
-    const response = await axios.post(`${API_BASE}/crawl_from_post`, data, {
+    return await axios.post(`${API_BASE}/crawl_from_post`, data, {
       headers: getAuthHeaders(apiKey),
       timeout: 15000 // 抓取可能需要更长时间
     });
-    
-    console.log('✅ HTTP响应成功:', {
-      status: response.status,
-      statusText: response.statusText,
-      data: response.data
-    });
-    
-    return response;
   } catch (error: any) {
-    console.error('❌ HTTP请求失败:', error);
-    console.error('❌ 错误详细信息:', {
-      message: error.message,
-      status: error.response?.status,
-      statusText: error.response?.statusText,
-      responseData: error.response?.data,
-      url: error.config?.url,
-      method: error.config?.method
-    });
+    console.error('启动抓取任务失败:', error);
     throw error;
   }
 };

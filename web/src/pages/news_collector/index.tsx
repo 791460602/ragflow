@@ -133,7 +133,7 @@ const NewsCollector: React.FC = () => {
     }
   };
 
-  const loadSources = async (params?: { //？表示可选参数
+  const loadSources = async (params?: {
     page?: number;
     pageSize?: number;
     name?: string;
@@ -250,100 +250,42 @@ const NewsCollector: React.FC = () => {
   };
 
   const handleCrawlNews = async () => {
-    console.log('🚀 ======= 开始即时抓取流程 =======');
-    console.log('📊 当前新闻源列表:', sources);
-    console.log('🔑 API Key状态:', apiKey ? `已配置 (前8位: ${apiKey.substring(0, 8)}...)` : '未配置');
-    
     const activeSourceIds = sources.filter(s => s.status === 'active' && s.id).map(s => s.id!);
-    console.log('✅ 活跃新闻源筛选结果:', {
-      totalSources: sources.length,
-      activeSources: activeSourceIds.length,
-      activeSourceIds: activeSourceIds
-    });
     
-    // 获取活跃的新闻源列表
-    const activeSources = sources.filter(s => s.status === 'active');
-    
-    if (!activeSources.length) {
-      console.warn('⚠️ 没有找到活跃的新闻源');
-      message.warning('没有找到活跃的新闻源，请先添加并启用新闻源');
+    if (activeSourceIds.length === 0) {
+      message.warning('没有可抓取的活跃新闻源');
       return;
     }
     
-    // 构建请求数据，根据前端输入配置决定source内容
-    const crawlRequest = {
-      sources: activeSources.map(source => {
-        const baseSource: any = { url: source.url };
-        
-        // 如果配置了选择器（精确模式），则添加选择器配置
-        if (source.remark === '1' && source.fetch_config && Object.keys(source.fetch_config).length > 0) {
-          const config = source.fetch_config;
-          if (config.link_selector) baseSource.link_selector = config.link_selector;
-          if (config.title_selector) baseSource.title_selector = config.title_selector;
-          if (config.content_selector) baseSource.content_selector = config.content_selector;
-          if (config.publication_time_selector) baseSource.publication_time_selector = config.publication_time_selector;
-          if (config.author_selector) baseSource.author_selector = config.author_selector;
-        }
-        // 如果没有配置选择器（自动模式），则仅使用URL
-        
-        return baseSource;
-      }),
-      depth: 2,
-      max_pages_per_source: 10
-    };
-    
-    console.log('📝 构建的抓取请求参数:', JSON.stringify(crawlRequest, null, 2));
-    console.log('🌐 即将发送到API:', '/api/v1/news_collector/crawl_from_post');
+    if (!apiKey) {
+      message.warning('请先配置API Key');
+      return;
+    }
     
     setLoading(true);
     try {
-      console.log('📡 发送抓取请求...');
-      const response = await crawlFromPost(apiKey, crawlRequest);
-      console.log('✅ API响应成功:', response);
-      
-      message.success(`已启动后台抓取任务，正在处理 ${activeSources.length} 个新闻源`);
-      console.log('✅ 启动抓取任务成功，源配置:', activeSources.map(s => s.url));
-      
-      // 显示详细的源信息
-      console.log('📋 即将抓取的新闻源详情:');
-      activeSources.forEach((source, index) => {
-        const mode = source.remark === '1' ? '精确模式' : '自动模式';
-        console.log(`  ${index + 1}. ${source.url} (${mode})`);
-        if (source.remark === '1' && source.fetch_config) {
-          const config = source.fetch_config;
-          if (config.link_selector) console.log(`      - link_selector: ${config.link_selector}`);
-          if (config.title_selector) console.log(`      - title_selector: ${config.title_selector}`);
-          if (config.content_selector) console.log(`      - content_selector: ${config.content_selector}`);
-          if (config.publication_time_selector) console.log(`      - publication_time_selector: ${config.publication_time_selector}`);
-          if (config.author_selector) console.log(`      - author_selector: ${config.author_selector}`);
-        }
+      await crawlFromPost(apiKey, {
+        source_ids: activeSourceIds,
+        depth: 2,
+        max_pages_per_source: 10
       });
-      
+      message.success(`已启动后台抓取任务，正在处理 ${activeSourceIds.length} 个新闻源`);
+      console.log('启动抓取任务成功:', activeSourceIds);
     } catch (error: any) {
-      console.error('❌ 抓取请求失败:', error);
-      console.error('❌ 错误详情:', {
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-        data: error.response?.data,
-        message: error.message
-      });
+      console.error('抓取失败:', error);
       
       let errorMessage = '抓取失败';
       if (error.response?.status === 404) {
         errorMessage = '抓取API接口不存在，请检查后端服务';
-        console.error('❌ 404错误: API接口不存在');
       } else if (error.response?.data?.message) {
         errorMessage = error.response.data.message;
-        console.error('❌ API返回错误:', error.response.data.message);
       } else if (error.message) {
         errorMessage = error.message;
-        console.error('❌ 网络或其他错误:', error.message);
       }
       
       message.error(errorMessage);
     } finally {
       setLoading(false);
-      console.log('🏁 ======= 前端抓取请求流程结束 =======');
     }
   };
 
