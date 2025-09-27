@@ -16,19 +16,26 @@ interface NewsSource {
 }
 
 interface CrawlRequest {
-  source_ids: string[];
+  sources: {
+    url: string;
+    link_selector?: string;
+    title_selector?: string;
+    content_selector?: string;
+    publication_time_selector?: string;
+    author_selector?: string;
+  }[];
   depth?: number;
   max_pages_per_source?: number;
 }
 
 interface PaginatedResponse<T> {
-  data: T[];
+  sources: T[];  // 新闻源数组在 sources 字段
   total: number;
   page: number;
   page_size: number;
 }
 
-const API_BASE = '/v1/news_collector';
+const API_BASE = '/api/v1/news_collector';
 
 const getAuthHeaders = (apiKey: string) => ({
   Authorization: `Bearer ${apiKey}`
@@ -67,7 +74,7 @@ export const getNewsSources = async (apiKey: string, params?: {
     '?' + new URLSearchParams(cleanParams as Record<string, string>).toString() : '';
   
   const fullUrl = `${API_BASE}/sources${queryString}`;
-  console.log('获取新闻源API请求URL:', fullUrl);
+  console.log('获取新闻源API请求URL:', fullUrl);// /api/v1/news_collector/sources?page=1&page_size=10
   console.log('请求头:', getAuthHeaders(apiKey));
   
   try {
@@ -136,13 +143,36 @@ export const getNewsSource = (apiKey: string, id: string) =>
 
 // 即时抓取功能
 export const crawlFromPost = async (apiKey: string, data: CrawlRequest) => {
+  console.log('🌐 ======= NewsCollectorService.crawlFromPost =======');
+  console.log('📡 API_BASE:', API_BASE);
+  console.log('🔗 完整URL:', `${API_BASE}/crawl_from_post`);
+  console.log('📝 请求数据:', JSON.stringify(data, null, 2));
+  console.log('🔑 请求头:', getAuthHeaders(apiKey));
+  
   try {
-    return await axios.post(`${API_BASE}/crawl_from_post`, data, {
+    console.log('⏳ 发送HTTP POST请求...');
+    const response = await axios.post(`${API_BASE}/crawl_from_post`, data, {
       headers: getAuthHeaders(apiKey),
       timeout: 15000 // 抓取可能需要更长时间
     });
+    
+    console.log('✅ HTTP响应成功:', {
+      status: response.status,
+      statusText: response.statusText,
+      data: response.data
+    });
+    
+    return response;
   } catch (error: any) {
-    console.error('启动抓取任务失败:', error);
+    console.error('❌ HTTP请求失败:', error);
+    console.error('❌ 错误详细信息:', {
+      message: error.message,
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      responseData: error.response?.data,
+      url: error.config?.url,
+      method: error.config?.method
+    });
     throw error;
   }
 };
@@ -168,7 +198,7 @@ export const deleteAllContents = (apiKey: string) =>
 // 获取知识库列表 - 添加错误处理
 export const getDatasets = async (apiKey: string) => {
   try {
-    return await axios.get('/api/sdk/dataset/datasets', { 
+    return await axios.get('/api/v1/datasets', { 
       headers: getAuthHeaders(apiKey),
       timeout: 8000
     });
