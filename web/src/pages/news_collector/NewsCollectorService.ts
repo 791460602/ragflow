@@ -22,13 +22,13 @@ interface CrawlRequest {
 }
 
 interface PaginatedResponse<T> {
-  data: T[];
+  source: T[];//##############################
   total: number;
   page: number;
   page_size: number;
 }
 
-const API_BASE = '/v1/news_collector';
+const API_BASE = '/api/v1/news_collector';
 
 const getAuthHeaders = (apiKey: string) => ({
   Authorization: `Bearer ${apiKey}`
@@ -168,7 +168,7 @@ export const deleteAllContents = (apiKey: string) =>
 // 获取知识库列表 - 添加错误处理
 export const getDatasets = async (apiKey: string) => {
   try {
-    return await axios.get('/api/sdk/dataset/datasets', { 
+    return await axios.get('/api/v1/datasets', { 
       headers: getAuthHeaders(apiKey),
       timeout: 8000
     });

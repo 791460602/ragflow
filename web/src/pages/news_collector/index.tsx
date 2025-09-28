@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Button, Card, Empty, message, Spin, Space, Select, Input, Alert, Tabs, Modal } from 'antd';
-import { PlusOutlined, ReloadOutlined, SyncOutlined, KeyOutlined } from '@ant-design/icons';
+import { Button, Card, Empty, message, Spin, Space, Select, Input, Alert, Tabs, Modal, Popconfirm } from 'antd';
+import { PlusOutlined, ReloadOutlined, SyncOutlined, KeyOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 // 恢复表单组件
 import NewsCollectorForm from './NewsCollectorForm';
 // 恢复API调用
@@ -170,8 +170,8 @@ const NewsCollector: React.FC = () => {
       
       // 安全检查响应数据
       if (response && response.data) {
-        const { data, total, page, page_size } = response.data;
-        const sourcesList = Array.isArray(data) ? data : [];
+        const { sources, total, page, page_size } = response.data.data;
+        const sourcesList = Array.isArray(sources) ? sources : [];
         const totalCount = typeof total === 'number' ? total : 0;
         const currentPage = typeof page === 'number' ? page : 1;
         const pageSize = typeof page_size === 'number' ? page_size : 10;
@@ -1119,11 +1119,11 @@ const NewsCollector: React.FC = () => {
           width={600}
         >
           <NewsCollectorForm
-            initialValues={editingSource || {}}
-            datasets={datasets}
+            initialData={editingSource || undefined}
             onSubmit={editingSource ? handleEditSource : handleAddSource}
             onCancel={closeModal}
             loading={loading}
+            isEditing={!!editingSource}
           />
         </Modal>
         
