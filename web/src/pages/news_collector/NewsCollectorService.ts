@@ -22,20 +22,70 @@ interface CrawlRequest {
 }
 
 interface PaginatedResponse<T> {
-  source: T[];//##############################
+  sources: T[];
   total: number;
   page: number;
   page_size: number;
 }
 
-const API_BASE = '/api/v1/news_collector';
+const API_BASE = '/v1/news_collector';
 
-const getAuthHeaders = (apiKey: string) => ({
-  Authorization: `Bearer ${apiKey}`
-});
+/**
+ * 获取认证头
+ * 优先级：
+ * 1. 主系统登录态（localStorage.Authorization）
+ * 2. 手动配置的 API Key（参数传入）
+ * 3. localStorage 中的 apiKey
+ */
+const getAuthHeaders = (manualApiKey?: string) => {
+  // 优先使用主系统登录态
+  const authorization = localStorage.getItem('Authorization');
+  if (authorization) {
+    console.log('✅ 使用主系统登录态认证');
+    return { Authorization: authorization };
+  }
+  
+  // 降级到手动传入的 API Key
+  if (manualApiKey) {
+    console.log('✅ 使用手动配置的 API Key 认证');
+    return { Authorization: `Bearer ${manualApiKey}` };
+  }
+  
+  // 最后尝试从 localStorage 读取 apiKey
+  const storedApiKey = localStorage.getItem('apiKey');
+  if (storedApiKey) {
+    console.log('✅ 使用存储的 API Key 认证');
+    return { Authorization: `Bearer ${storedApiKey}` };
+  }
+  
+  console.warn('⚠️ 未找到任何认证信息');
+  return {};
+};
+
+/**
+ * 检查是否有可用的认证信息
+ */
+export const hasAuthToken = (): boolean => {
+  const authorization = localStorage.getItem('Authorization');
+  const storedApiKey = localStorage.getItem('apiKey');
+  return !!(authorization || storedApiKey);
+};
+
+/**
+ * 获取当前认证方式
+ */
+export const getAuthType = (): 'login' | 'apikey' | 'none' => {
+  const authorization = localStorage.getItem('Authorization');
+  if (authorization) return 'login';
+  
+  const storedApiKey = localStorage.getItem('apiKey');
+  if (storedApiKey) return 'apikey';
+  
+  return 'none';
+};
 
 // API健康检查
-export const checkApiHealth = async (apiKey: string) => {
+export const checkApiHealth = async (apiKey?: string) => {
   try {
     const response = await axios.get(`${API_BASE}/sources?page=1&page_size=1`, {
       headers: getAuthHeaders(apiKey),
@@ -52,12 +102,12 @@ export const checkApiHealth = async (apiKey: string) => {
 };
 
 // 新闻源管理 CRUD - 添加更好的错误处理
-export const getNewsSources = async (apiKey: string, params?: {
+export const getNewsSources = async (params?: {
   page?: number;
   page_size?: number;
   name?: string;
   status?: string;
-}) => {
+}, apiKey?: string) => {
   const cleanParams = params ? 
     Object.entries(params)
       .filter(([_, v]) => v !== undefined && v !== '')
@@ -71,7 +121,7 @@ export const getNewsSources = async (apiKey: string, params?: {
   console.log('请求头:', getAuthHeaders(apiKey));
   
   try {
-    const response = await axios.get<PaginatedResponse<NewsSource>>(fullUrl, {
+    const response = await axios.get<{ code: number; data: PaginatedResponse<NewsSource> }>(fullUrl, {
       headers: getAuthHeaders(apiKey),
       timeout: 10000 // 10秒超时
     });
@@ -84,7 +134,7 @@ export const getNewsSources = async (apiKey: string, params?: {
   }
 };
 
-export const createNewsSource = async (apiKey: string, data: NewsSource) => {
+export const createNewsSource = async (data: NewsSource, apiKey?: string) => {
   const url = `${API_BASE}/sources`;
   console.log('创建新闻源API请求URL:', url);
   console.log('创建新闻源数据:', data);
@@ -105,7 +155,7 @@ export const createNewsSource = async (apiKey: string, data: NewsSource) => {
   }
 };
 
-export const updateNewsSource = async (apiKey: string, id: string, data: Partial<NewsSource>) => {
+export const updateNewsSource = async (id: string, data: Partial<NewsSource>, apiKey?: string) => {
   try {
     return await axios.put(`${API_BASE}/sources/${id}`, data, {
       headers: getAuthHeaders(apiKey),
@@ -117,7 +167,7 @@ export const updateNewsSource = async (apiKey: string, id: string, data: Partial
   }
 };
 
-export const deleteNewsSource = async (apiKey: string, id: string) => {
+export const deleteNewsSource = async (id: string, apiKey?: string) => {
   try {
     return await axios.delete(`${API_BASE}/sources/${id}`, {
       headers: getAuthHeaders(apiKey),
@@ -129,13 +179,13 @@ export const deleteNewsSource = async (apiKey: string, id: string) => {
   }
 };
 
-export const getNewsSource = (apiKey: string, id: string) => 
+export const getNewsSource = (id: string, apiKey?: string) => 
   axios.get(`${API_BASE}/sources/${id}`, {
     headers: getAuthHeaders(apiKey)
   });
 
 // 即时抓取功能
-export const crawlFromPost = async (apiKey: string, data: CrawlRequest) => {
+export const crawlFromPost = async (data: CrawlRequest, apiKey?: string) => {
   try {
     return await axios.post(`${API_BASE}/crawl_from_post`, data, {
       headers: getAuthHeaders(apiKey),
@@ -148,10 +198,10 @@ export const crawlFromPost = async (apiKey: string, data: CrawlRequest) => {
 };
 
 // 内容与哈希管理
-export const getContentHashes = (apiKey: string, params?: {
+export const getContentHashes = (params?: {
   page?: number;
   page_size?: number;
-}) => {
+}, apiKey?: string) => {
   const queryString = params ? 
     '?' + Object.entries(params).filter(([_, v]) => v !== undefined).map(([k, v]) => `${k}=${v}`).join('&') :
     '';
@@ -160,13 +210,13 @@ export const getContentHashes = (apiKey: string, params?: {
   });
 };
 
-export const deleteAllContents = (apiKey: string) => 
+export const deleteAllContents = (apiKey?: string) => 
   axios.delete(`${API_BASE}/contents`, {
     headers: getAuthHeaders(apiKey)
   });
 
 // 获取知识库列表 - 添加错误处理
-export const getDatasets = async (apiKey: string) => {
+export const getDatasets = async (apiKey?: string) => {
   try {
     return await axios.get('/api/v1/datasets', { 
       headers: getAuthHeaders(apiKey),
