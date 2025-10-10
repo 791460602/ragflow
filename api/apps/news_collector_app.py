@@ -26,6 +26,8 @@ from api.db.services.news_service import NewsSourceService, NewsTaskService, New
 from api.db.services.knowledgebase_service import KnowledgebaseService
 from api.utils import get_uuid
 from datetime import datetime, timedelta
+import threading
+import traceback
 
 # ========== 新闻源管理 CRUD ==========
 
@@ -394,6 +396,43 @@ def delete_news_content(content_id):
         return server_error_response(e)
 
 
+@manager.route('/contents/hashes', methods=['GET'])  # noqa: F821
+@login_required
+def list_content_hashes():
+    """获取已存储内容的哈希列表（带分页）"""
+    try:
+        page = int(request.args.get('page', 1))
+        page_size = int(request.args.get('page_size', 20))
+
+        records, total = NewsContentService.get_hashes_paginated(
+            tenant_id=current_user.id, 
+            page=page, 
+            page_size=page_size
+        )
+
+        return get_json_result(data={
+            'records': records,
+            'total': total,
+            'page': page,
+            'page_size': page_size
+        })
+
+    except Exception as e:
+        return server_error_response(e)
+
+
+@manager.route('/contents', methods=['DELETE'])  # noqa: F821
+@login_required
+def delete_all_contents():
+    """清除所有已存储的内容记录和哈希值"""
+    try:
+        deleted_count = NewsContentService.delete_by_tenant_id(current_user.id)
+        return get_json_result(message=f'成功删除 {deleted_count} 条内容记录。抓取历史已重置。')
+
+    except Exception as e:
+        return server_error_response(e)
+
+
 # ========== 统计分析 ==========
 
 @manager.route('/statistics', methods=['GET'])  # noqa: F821
@@ -473,4 +512,46 @@ def get_available_crawlers():
         })
 
     except Exception as e:
+        return server_error_response(e)
+
+
+# ========== 即时抓取功能 ==========
+
+@manager.route('/crawl_from_post', methods=['POST'])  # noqa: F821
+@login_required
+def crawl_from_post_web():
+    """
+    即时抓取接口（Web版）
+    接收一个包含新闻源ID列表和控制参数的对象，
+    并为它们启动一个即时的、数据库驱动的后台抓取任务。
+    """
+    try:
+        req_data = request.get_json()
+        
+        source_ids = req_data.get("source_ids")
+        depth = int(req_data.get("depth", 2))
+        max_pages_per_source = int(req_data.get("max_pages_per_source", 50))
+        
+        if not isinstance(source_ids, list) or not source_ids:
+            return get_json_result(code=400, message="请求体必须包含一个名为 'source_ids' 的非空数组。")
+        
+        # 导入后台任务处理函数（延迟导入以避免循环依赖）
+        from api.apps.sdk.news_collector import _background_crawl_from_post_wrapper
+        
+        # 使用当前登录用户的ID作为tenant_id
+        tenant_id = current_user.id
+        
+        # 启动后台线程
+        thread = threading.Thread(
+            target=_background_crawl_from_post_wrapper, 
+            args=(tenant_id, source_ids, depth, max_pages_per_source)
+        )
+        thread.start()
+        
+        return get_json_result(data={
+            "message": f"已成功启动后台即时抓取任务，将从数据库加载并处理 {len(source_ids)} 个新闻源。"
+        })
+        
+    except Exception as e:
+        traceback.print_exc()
         return server_error_response(e)

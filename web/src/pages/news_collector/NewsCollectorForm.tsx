@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Form, Input, Select, Button, Space, Radio, Collapse, Tooltip } from 'antd';
 import { QuestionCircleOutlined } from '@ant-design/icons';
 
@@ -37,6 +37,28 @@ const NewsCollectorForm: React.FC<NewsSourceFormProps> = ({
 }) => {
   const [form] = Form.useForm();
   const [crawlMode, setCrawlMode] = useState<string>(initialData?.remark || '0');
+
+  // 当 initialData 变化时，更新表单和状态
+  useEffect(() => {
+    if (initialData) {
+      // 更新抓取模式状态
+      setCrawlMode(initialData.remark || '0');
+      
+      // 重置表单值
+      form.setFieldsValue({
+        name: initialData.name,
+        url: initialData.url,
+        status: initialData.status || 'active',
+        remark: initialData.remark || '0',
+        fetch_config_text: initialData.fetch_config ? 
+          JSON.stringify(initialData.fetch_config, null, 2) : ''
+      });
+    } else {
+      // 如果是新增，重置为默认值
+      setCrawlMode('0');
+      form.resetFields();
+    }
+  }, [initialData, form]);
 
   const handleFinish = (values: any) => {
     const { fetch_config_text, ...otherValues } = values;
