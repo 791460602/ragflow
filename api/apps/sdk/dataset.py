@@ -453,9 +453,16 @@ def list_datasets(tenant_id):
             if not kbs:
                 return get_error_permission_result(message=f"User '{tenant_id}' lacks permission for dataset '{name}'")
 
+        # Get joined tenants (where user has NORMAL role) and add user's own tenant_id
         tenants = TenantService.get_joined_tenants_by_user_id(tenant_id)
+        joined_tenant_ids = [m["tenant_id"] for m in tenants]
+        
+        # Always include user's own tenant_id to ensure their own datasets are visible
+        if tenant_id not in joined_tenant_ids:
+            joined_tenant_ids.append(tenant_id)
+        
         kbs = KnowledgebaseService.get_list(
-            [m["tenant_id"] for m in tenants],
+            joined_tenant_ids,
             tenant_id,
             args["page"],
             args["page_size"],

@@ -19,6 +19,7 @@ interface CrawlRequest {
   source_ids: string[];
   depth?: number;
   max_pages_per_source?: number;
+  kb_id?: string;  // 目标知识库ID
 }
 
 interface PaginatedResponse<T> {
@@ -215,10 +216,11 @@ export const deleteAllContents = (apiKey?: string) =>
     headers: getAuthHeaders(apiKey)
   });
 
-// 获取知识库列表 - 添加错误处理
+// 获取知识库列表 - 使用新闻收集器专用的知识库 API（支持登录态）
 export const getDatasets = async (apiKey?: string) => {
   try {
-    return await axios.get('/api/v1/datasets', { 
+    // 使用新闻收集器的专用知识库 API，支持登录态认证
+    return await axios.get(`${API_BASE}/datasets`, { 
       headers: getAuthHeaders(apiKey),
       timeout: 8000
     });

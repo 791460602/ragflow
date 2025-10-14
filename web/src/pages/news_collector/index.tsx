@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Button, Card, Empty, message, Spin, Space, Select, Input, Alert, Tabs, Modal, Popconfirm } from 'antd';
-import { PlusOutlined, SyncOutlined, KeyOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
+import { Button, Card, Empty, message, Spin, Space, Select, Input, Alert, Tabs, Modal, Popconfirm, Form, InputNumber, Tooltip } from 'antd';
+import { PlusOutlined, SyncOutlined, KeyOutlined, EditOutlined, DeleteOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 // 恢复表单组件
 import NewsCollectorForm from './NewsCollectorForm';
 // 恢复API调用
@@ -53,6 +53,10 @@ const NewsCollector: React.FC = () => {
   const [apiKey, setApiKey] = useState(getApiKey());
   const [apiKeyModalVisible, setApiKeyModalVisible] = useState(false);
   const [tempApiKey, setTempApiKey] = useState('');
+  
+  // 抓取配置模态框状态
+  const [crawlConfigModalVisible, setCrawlConfigModalVisible] = useState(false);
+  const [crawlConfigForm] = Form.useForm();
   
   // 获取认证头（优先使用登录态）
   const getAuthorizationHeader = () => {
@@ -120,17 +124,38 @@ const NewsCollector: React.FC = () => {
       console.log('开始加载知识库列表...');
       const res = await getDatasets(apiKey);
       
-      // 安全检查响应数据
+      console.log('知识库API完整响应:', res);
+      console.log('响应数据结构:', res?.data);
+      
+      // 安全检查响应数据 - 兼容多种响应格式
       if (res && res.data) {
-        const datasets = Array.isArray(res.data.data) ? res.data.data : [];
+        let datasets = [];
+        
+        // 格式1: { code: 0, data: [...] } - 新闻收集器专用API格式
+        if (Array.isArray(res.data.data)) {
+          datasets = res.data.data;
+        } 
+        // 格式2: { code: 0, data: {...} } - SDK API格式  
+        else if (res.data.data && Array.isArray(res.data.data.data)) {
+          datasets = res.data.data.data;
+        }
+        // 格式3: 直接是数组
+        else if (Array.isArray(res.data)) {
+          datasets = res.data;
+        }
+        
         setDatasets(datasets);
-        console.log('加载知识库列表成功:', datasets.length);
+        console.log('加载知识库列表成功:', datasets.length, '个知识库');
+        if (datasets.length > 0) {
+          console.log('前3个知识库:', datasets.slice(0, 3));
+        }
       } else {
         console.warn('知识库API响应格式异常:', res);
         setDatasets([]);
       }
     } catch (error: any) {
       console.error('加载知识库列表失败:', error);
+      console.error('错误详情:', error.response);
       setDatasets([]);
       // 只在非404错误时记录警告
       if (error.response?.status !== 404) {
@@ -247,7 +272,8 @@ const NewsCollector: React.FC = () => {
     setEditingSource(null);
   };
 
-  const handleCrawlNews = async () => {
+  // 显示抓取配置对话框
+  const handleCrawlNews = () => {
     const activeSourceIds = sources.filter(s => s.status === 'active' && s.id).map(s => s.id!);
     
     if (activeSourceIds.length === 0) {
@@ -255,15 +281,39 @@ const NewsCollector: React.FC = () => {
       return;
     }
     
-    setLoading(true);
+    // 重置表单为默认值并显示模态框
+    crawlConfigForm.setFieldsValue({
+      depth: 2,
+      max_pages_per_source: 10
+    });
+    setCrawlConfigModalVisible(true);
+  };
+
+  // 执行实际的抓取操作
+  const executeCrawl = async () => {
     try {
+      const values = await crawlConfigForm.validateFields();
+      const activeSourceIds = sources.filter(s => s.status === 'active' && s.id).map(s => s.id!);
+      
+      setCrawlConfigModalVisible(false);
+      setLoading(true);
+      
       await crawlFromPost({
         source_ids: activeSourceIds,
-        depth: 2,
-        max_pages_per_source: 10
+        depth: values.depth,
+        max_pages_per_source: values.max_pages_per_source,
+        kb_id: values.kb_id  // 添加知识库ID
       }, apiKey);
-      message.success(`已启动后台抓取任务，正在处理 ${activeSourceIds.length} 个新闻源`);
-      console.log('启动抓取任务成功:', activeSourceIds);
+      
+      const selectedDataset = datasets.find(ds => ds.id === values.kb_id);
+      message.success(`已启动后台抓取任务，内容将上传到知识库「${selectedDataset?.name || values.kb_id}」`);
+      console.log('启动抓取任务成功:', { 
+        sourceIds: activeSourceIds, 
+        depth: values.depth, 
+        maxPages: values.max_pages_per_source,
+        kbId: values.kb_id,
+        kbName: selectedDataset?.name
+      });
     } catch (error: any) {
       console.error('抓取失败:', error);
       
@@ -803,6 +853,120 @@ const NewsCollector: React.FC = () => {
               }
             />
           </Space>
+        </Modal>
+
+        {/* 抓取配置模态框 */}
+        <Modal
+          title="配置抓取参数"
+          open={crawlConfigModalVisible}
+          onOk={executeCrawl}
+          onCancel={() => setCrawlConfigModalVisible(false)}
+          okText="开始抓取"
+          cancelText="取消"
+          width={500}
+        >
+          <Form
+            form={crawlConfigForm}
+            layout="vertical"
+            initialValues={{
+              depth: 2,
+              max_pages_per_source: 10,
+              kb_id: datasets.length === 1 ? datasets[0].id : undefined
+            }}
+          >
+            <Form.Item
+              name="kb_id"
+              label={
+                <span>
+                  目标知识库
+                  <Tooltip title="抓取的新闻内容将自动上传到选定的知识库并解析">
+                    <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                  </Tooltip>
+                </span>
+              }
+              rules={[
+                { required: true, message: '请选择目标知识库' }
+              ]}
+            >
+              <Select
+                placeholder="选择知识库"
+                showSearch
+                optionFilterProp="children"
+                style={{ width: '100%' }}
+              >
+                {datasets.map(ds => (
+                  <Select.Option key={ds.id} value={ds.id}>
+                    {ds.name}
+                  </Select.Option>
+                ))}
+              </Select>
+            </Form.Item>
+
+            <Form.Item
+              name="depth"
+              label={
+                <span>
+                  抓取深度
+                  <Tooltip title="从新闻源首页开始，递归抓取的链接层级深度">
+                    <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                  </Tooltip>
+                </span>
+              }
+              rules={[
+                { required: true, message: '请输入抓取深度' },
+                { type: 'number', min: 1, max: 5, message: '抓取深度范围：1-5' }
+              ]}
+            >
+              <InputNumber
+                min={1}
+                max={5}
+                style={{ width: '100%' }}
+                placeholder="建议：1-3层"
+              />
+            </Form.Item>
+
+            <Form.Item
+              name="max_pages_per_source"
+              label={
+                <span>
+                  每源最大页数
+                  <Tooltip title="每个新闻源最多抓取的页面数量">
+                    <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                  </Tooltip>
+                </span>
+              }
+              rules={[
+                { required: true, message: '请输入最大页数' },
+                { type: 'number', min: 1, max: 1000, message: '最大页数范围：1-1000' }
+              ]}
+            >
+              <InputNumber
+                min={1}
+                max={1000}
+                style={{ width: '100%' }}
+                placeholder="建议：10-50页"
+              />
+            </Form.Item>
+
+            <Alert
+              type="info"
+              message="抓取说明"
+              description={
+                <div>
+                  <p><strong>目标知识库：</strong>抓取的新闻内容将自动上传到选定的知识库并解析，解析完成后可用于检索和问答</p>
+                  <p style={{ marginTop: 8 }}><strong>抓取深度：</strong>控制从首页开始的链接递归层级</p>
+                  <ul style={{ marginLeft: 20, marginTop: 4 }}>
+                    <li>深度 1：仅抓取首页</li>
+                    <li>深度 2：首页 + 首页链接的页面</li>
+                    <li>深度 3：再深入一层</li>
+                  </ul>
+                  <p style={{ marginTop: 8 }}><strong>每源最大页数：</strong>限制单个新闻源的抓取数量，避免过度抓取</p>
+                  <p style={{ marginTop: 8, color: '#ff9800' }}>⚠️ 深度和页数越大，抓取时间越长</p>
+                </div>
+              }
+              style={{ marginTop: 16 }}
+            />
+          </Form>
         </Modal>
       </div>
     );

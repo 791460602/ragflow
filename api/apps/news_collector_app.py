@@ -522,7 +522,7 @@ def get_available_crawlers():
 def crawl_from_post_web():
     """
     即时抓取接口（Web版）
-    接收一个包含新闻源ID列表和控制参数的对象，
+    接收一个包含新闻源ID列表、控制参数和目标知识库ID的对象，
     并为它们启动一个即时的、数据库驱动的后台抓取任务。
     """
     try:
@@ -531,26 +531,75 @@ def crawl_from_post_web():
         source_ids = req_data.get("source_ids")
         depth = int(req_data.get("depth", 2))
         max_pages_per_source = int(req_data.get("max_pages_per_source", 50))
+        kb_id = req_data.get("kb_id")  # 目标知识库ID
         
         if not isinstance(source_ids, list) or not source_ids:
             return get_json_result(code=400, message="请求体必须包含一个名为 'source_ids' 的非空数组。")
         
+        # 验证知识库ID
+        if not kb_id:
+            return get_json_result(code=400, message="请选择目标知识库（kb_id 参数缺失）。")
+        
+        # 验证知识库是否存在且当前用户有权限访问
+        from api.db.services.knowledgebase_service import KnowledgebaseService
+        tenant_id = current_user.id
+        
+        if not KnowledgebaseService.accessible(kb_id, tenant_id):
+            return get_json_result(code=403, message=f"无权访问知识库 {kb_id} 或知识库不存在。")
+        
         # 导入后台任务处理函数（延迟导入以避免循环依赖）
         from api.apps.sdk.news_collector import _background_crawl_from_post_wrapper
-        
-        # 使用当前登录用户的ID作为tenant_id
-        tenant_id = current_user.id
         
         # 启动后台线程
         thread = threading.Thread(
             target=_background_crawl_from_post_wrapper, 
-            args=(tenant_id, source_ids, depth, max_pages_per_source)
+            args=(tenant_id, source_ids, depth, max_pages_per_source, kb_id)
         )
         thread.start()
         
         return get_json_result(data={
-            "message": f"已成功启动后台即时抓取任务，将从数据库加载并处理 {len(source_ids)} 个新闻源。"
+            "message": f"已成功启动后台即时抓取任务，将从数据库加载并处理 {len(source_ids)} 个新闻源，内容将上传到知识库 {kb_id}。"
         })
+        
+    except Exception as e:
+        traceback.print_exc()
+        return server_error_response(e)
+
+
+# ========== 知识库列表获取（用于新闻收集器） ==========
+
+@manager.route('/datasets', methods=['GET'])  # noqa: F821
+@login_required
+def list_datasets():
+    """获取知识库列表（用于新闻收集器选择目标知识库）"""
+    try:
+        # 获取用户的所有知识库
+        from api.db.services.user_service import TenantService
+        
+        # 获取用户加入的租户
+        tenants = TenantService.get_joined_tenants_by_user_id(current_user.id)
+        joined_tenant_ids = [m["tenant_id"] for m in tenants]
+        
+        # 始终包含用户自己的 tenant_id
+        if current_user.id not in joined_tenant_ids:
+            joined_tenant_ids.append(current_user.id)
+        
+        # 获取知识库列表
+        kbs = KnowledgebaseService.get_list(
+            joined_tenant_ids,
+            current_user.id,
+            page_number=1,
+            items_per_page=1000,  # 获取所有知识库用于选择
+            orderby="create_time",
+            desc=True,
+            id=None,
+            name=None,
+        )
+        
+        # 转换为前端需要的格式
+        datasets = [{"id": kb["id"], "name": kb["name"]} for kb in kbs]
+        
+        return get_json_result(data=datasets)
         
     except Exception as e:
         traceback.print_exc()
