@@ -24,7 +24,11 @@ from flask import request
 from api.utils.api_utils import get_json_result, server_error_response, token_required
 from api.db.services.news_service import NewsSourceService, NewsTaskService, NewsContentService
 from api.db.services.knowledgebase_service import KnowledgebaseService
+from api.db.services.document_service import DocumentService
+from api.db.services.file_service import FileService
 from api.utils import get_uuid
+from api.utils.file_utils import get_project_base_directory
+from rag.utils.storage_factory import STORAGE_IMPL
 from datetime import datetime, timedelta
 import os
 import tempfile
@@ -168,19 +172,101 @@ class LibraryCrawler:
 # =================================================================================
 def _sanitize_filename(name: str) -> str:
     """清理字符串，使其成为一个合法的文件名的一部分。"""
-    name = re.sub(r'[\\/*?:"<>|]', "", name)
+    # 移除所有不安全的字符，包括 [](){}|#@!$%^&*+=~`，保留字母、数字、中文、下划线、连字符和点
+    name = re.sub(r'[\\/*?:"<>|\[\](){}#@!$%^&*+=~`]', "", name)
+    # 将空白字符替换为下划线
     name = re.sub(r"\s+", "_", name)
+    # 限制长度
     return name[:100]
 
 
-async def _async_crawl_from_post_worker(tenant_id: str, source_ids: list, depth: int, max_pages: int):
+async def _upload_to_knowledgebase(kb_id: str, tenant_id: str, file_path: str, article_data: dict):
+    """
+    将抓取的新闻内容上传到指定知识库
+    
+    参数:
+        kb_id: 知识库ID
+        tenant_id: 租户ID
+        file_path: 本地文件路径
+        article_data: 文章数据（包含标题、内容等）
+    """
+    try:
+        # 验证知识库存在
+        _, kb = KnowledgebaseService.get_by_id(kb_id)
+        if not kb:
+            print(f"[知识库上传] 错误: 知识库 {kb_id} 不存在")
+            return False
+        
+        # 读取文件内容
+        async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
+            file_content = await f.read()
+        
+        # 准备文档数据
+        article_title = article_data.get("title", "Untitled")
+        article_url = article_data.get("url", "")
+        
+        # 创建文档记录
+        doc_id = get_uuid()
+        # 清理文件名，移除不支持的特殊字符
+        sanitized_title = _sanitize_filename(article_title)
+        doc_name = f"{sanitized_title}.json"
+        
+        # 上传文件到存储
+        # location 应该是相对于 bucket 的路径，与 STORAGE_IMPL.put 的第二个参数一致
+        storage_location = f"{doc_id}/{doc_name}"
+        STORAGE_IMPL.put(kb_id, storage_location, file_content.encode('utf-8'))
+        
+        # 创建文档记录到数据库
+        doc_data = {
+            "id": doc_id,
+            "kb_id": kb_id,
+            "name": doc_name,
+            "location": storage_location,  # 使用相对路径
+            "size": len(file_content),
+            "type": "json",
+            "suffix": "json",  # 添加文件后缀字段
+            "parser_id": kb.parser_id,
+            "parser_config": kb.parser_config,
+            "source_type": "news_crawler",
+            "created_by": tenant_id,
+            "tenant_id": tenant_id
+        }
+        
+        # DocumentService.insert 会自动增加知识库的文档数量
+        doc = DocumentService.insert(doc_data)
+        
+        # 获取或创建知识库文件夹
+        kb_root_folder = FileService.get_kb_folder(tenant_id)
+        if kb_root_folder:
+            kb_folder = FileService.new_a_file_from_kb(
+                tenant_id,
+                kb.name,
+                kb_root_folder["id"],
+            )
+            if kb_folder:
+                # 将文档添加到文件系统，以便在前端显示
+                FileService.add_file_from_kb(doc.to_dict(), kb_folder["id"], tenant_id)
+        
+        
+        print(f"[知识库上传] 成功上传文档到知识库 {kb_id}: {doc_name}")
+        return True
+        
+    except Exception as e:
+        print(f"[知识库上传] 上传失败: {e}")
+        traceback.print_exc()
+        return False
+
+
+async def _async_crawl_from_post_worker(tenant_id: str, source_ids: list, depth: int, max_pages: int, kb_id: str = None):
     """
     (已重构) 异步任务核心：
     1. 从数据库加载所有已存在的哈希值。
-    2. 将哈希集合传入爬虫，由爬虫进行“边抓取、边检查”。
-    3. 只对爬虫返回的“全新内容”进行存储和数据库更新。
+    2. 将哈希集合传入爬虫，由爬虫进行"边抓取、边检查"。
+    3. 只对爬虫返回的"全新内容"进行存储和数据库更新。
+    4. 如果提供了 kb_id，将抓取的内容上传到指定知识库。
     """
-    print(f"[后台任务] 开始处理 {len(source_ids)} 个新闻源... (深度: {depth}, 每源最大页数: {max_pages})")
+    kb_info = f", 目标知识库: {kb_id}" if kb_id else ""
+    print(f"[后台任务] 开始处理 {len(source_ids)} 个新闻源... (深度: {depth}, 每源最大页数: {max_pages}{kb_info})")
     
     try:
         content_hashes = NewsContentService.get_all_content_hashes(tenant_id)
@@ -257,6 +343,20 @@ async def _async_crawl_from_post_worker(tenant_id: str, source_ids: list, depth:
                     )
                     print(f"[数据库同步] 成功将新内容 '{page_title}' 同步到数据库。")
                     total_new_articles_saved += 1
+                    
+                    # 如果指定了知识库，上传到知识库
+                    if kb_id:
+                        upload_success = await _upload_to_knowledgebase(
+                            kb_id=kb_id,
+                            tenant_id=tenant_id,
+                            file_path=output_file,
+                            article_data=page_data
+                        )
+                        if upload_success:
+                            print(f"[知识库集成] 成功将内容上传到知识库 {kb_id}")
+                        else:
+                            print(f"[知识库集成] 上传到知识库失败，但本地文件和数据库已保存")
+                    
                 except Exception as e:
                     print(f"[数据库同步] 警告: 写入数据库失败: {e}")
 
@@ -266,9 +366,9 @@ async def _async_crawl_from_post_worker(tenant_id: str, source_ids: list, depth:
 
     print(f"\n[后台任务] 所有新闻源处理完毕。本次任务共发现并存储了 {total_new_articles_saved} 篇全新内容。")
 
-def _background_crawl_from_post_wrapper(tenant_id: str, source_ids: list, depth: int, max_pages: int):
+def _background_crawl_from_post_wrapper(tenant_id: str, source_ids: list, depth: int, max_pages: int, kb_id: str = None):
     """同步的包装函数，在线程中启动asyncio事件循环。"""
-    asyncio.run(_async_crawl_from_post_worker(tenant_id, source_ids, depth, max_pages))
+    asyncio.run(_async_crawl_from_post_worker(tenant_id, source_ids, depth, max_pages, kb_id))
 
 
 # ========== 爬虫核心框架 ==========
