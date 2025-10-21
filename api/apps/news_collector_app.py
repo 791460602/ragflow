@@ -532,6 +532,7 @@ def crawl_from_post_web():
         depth = int(req_data.get("depth", 2))
         max_pages_per_source = int(req_data.get("max_pages_per_source", 50))
         kb_id = req_data.get("kb_id")  # 目标知识库ID
+        parse = req_data.get("parse", False)
         
         if not isinstance(source_ids, list) or not source_ids:
             return get_json_result(code=400, message="请求体必须包含一个名为 'source_ids' 的非空数组。")
@@ -553,7 +554,7 @@ def crawl_from_post_web():
         # 启动后台线程
         thread = threading.Thread(
             target=_background_crawl_from_post_wrapper, 
-            args=(tenant_id, source_ids, depth, max_pages_per_source, kb_id)
+            args=(tenant_id, source_ids, depth, max_pages_per_source, kb_id ,parse)
         )
         thread.start()
         

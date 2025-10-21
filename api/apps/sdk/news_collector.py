@@ -180,7 +180,7 @@ def _sanitize_filename(name: str) -> str:
     return name[:100]
 
 
-async def _upload_to_knowledgebase(kb_id: str, tenant_id: str, file_path: str, article_data: dict):
+async def _upload_to_knowledgebase(kb_id: str, tenant_id: str, file_path: str, article_data: dict, parse: bool = False):
     """
     将抓取的新闻内容上传到指定知识库
     
@@ -249,6 +249,31 @@ async def _upload_to_knowledgebase(kb_id: str, tenant_id: str, file_path: str, a
         
         
         print(f"[知识库上传] 成功上传文档到知识库 {kb_id}: {doc_name}")
+        if parse:
+            # 解析文档
+            from api.db.services.task_service import queue_tasks
+            from api.db.services.file2document_service import File2DocumentService
+            
+            # 获取存储地址信息
+            bucket, name = File2DocumentService.get_storage_address(doc_id=doc_id)
+            
+            # 准备文档信息用于解析
+            doc_info = {
+                "id": doc_id,
+                "kb_id": kb_id,
+                "name": doc_name,
+                "location": storage_location,
+                "type": "json",
+                "parser_id": kb.parser_id,
+                "parser_config": kb.parser_config,
+                "tenant_id": tenant_id,
+                "size": len(file_content)
+            }
+            
+            # 将解析任务加入队列
+            queue_tasks(doc_info, bucket, name, 0)
+            print(f"[知识库上传] 已将文档 {doc_name} 加入解析队列")
+        
         return True
         
     except Exception as e:
@@ -257,7 +282,7 @@ async def _upload_to_knowledgebase(kb_id: str, tenant_id: str, file_path: str, a
         return False
 
 
-async def _async_crawl_from_post_worker(tenant_id: str, source_ids: list, depth: int, max_pages: int, kb_id: str = None):
+async def _async_crawl_from_post_worker(tenant_id: str, source_ids: list, depth: int, max_pages: int, kb_id: str = None, parse: bool = False):
     """
     (已重构) 异步任务核心：
     1. 从数据库加载所有已存在的哈希值。
@@ -350,7 +375,8 @@ async def _async_crawl_from_post_worker(tenant_id: str, source_ids: list, depth:
                             kb_id=kb_id,
                             tenant_id=tenant_id,
                             file_path=output_file,
-                            article_data=page_data
+                            article_data=page_data,
+                            parse=parse
                         )
                         if upload_success:
                             print(f"[知识库集成] 成功将内容上传到知识库 {kb_id}")
@@ -366,9 +392,9 @@ async def _async_crawl_from_post_worker(tenant_id: str, source_ids: list, depth:
 
     print(f"\n[后台任务] 所有新闻源处理完毕。本次任务共发现并存储了 {total_new_articles_saved} 篇全新内容。")
 
-def _background_crawl_from_post_wrapper(tenant_id: str, source_ids: list, depth: int, max_pages: int, kb_id: str = None):
+def _background_crawl_from_post_wrapper(tenant_id: str, source_ids: list, depth: int, max_pages: int, kb_id: str = None, parse: bool = False):
     """同步的包装函数，在线程中启动asyncio事件循环。"""
-    asyncio.run(_async_crawl_from_post_worker(tenant_id, source_ids, depth, max_pages, kb_id))
+    asyncio.run(_async_crawl_from_post_worker(tenant_id, source_ids, depth, max_pages, kb_id, parse))
 
 
 # ========== 爬虫核心框架 ==========
