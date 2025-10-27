@@ -20,6 +20,7 @@ interface CrawlRequest {
   depth?: number;
   max_pages_per_source?: number;
   kb_id?: string;  // 目标知识库ID
+  parse?: boolean;  // 是否自动解析
 }
 
 interface PaginatedResponse<T> {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Button, Card, Empty, message, Spin, Space, Select, Input, Alert, Tabs, Modal, Popconfirm, Form, InputNumber, Tooltip } from 'antd';
+import { Button, Card, Empty, message, Spin, Space, Select, Input, Alert, Tabs, Modal, Popconfirm, Form, InputNumber, Tooltip, Switch } from 'antd';
 import { PlusOutlined, SyncOutlined, KeyOutlined, EditOutlined, DeleteOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 // 恢复表单组件
 import NewsCollectorForm from './NewsCollectorForm';
@@ -284,7 +284,8 @@ const NewsCollector: React.FC = () => {
     // 重置表单为默认值并显示模态框
     crawlConfigForm.setFieldsValue({
       depth: 2,
-      max_pages_per_source: 10
+      max_pages_per_source: 10,
+      parse: false
     });
     setCrawlConfigModalVisible(true);
   };
@@ -302,7 +303,8 @@ const NewsCollector: React.FC = () => {
         source_ids: activeSourceIds,
         depth: values.depth,
         max_pages_per_source: values.max_pages_per_source,
-        kb_id: values.kb_id  // 添加知识库ID
+        kb_id: values.kb_id,  // 添加知识库ID
+        parse: values.parse || false  // 添加自动解析参数
       }, apiKey);
       
       const selectedDataset = datasets.find(ds => ds.id === values.kb_id);
@@ -864,6 +866,7 @@ const NewsCollector: React.FC = () => {
           okText="开始抓取"
           cancelText="取消"
           width={500}
+          style={{ top: 40 }}
         >
           <Form
             form={crawlConfigForm}
@@ -871,7 +874,8 @@ const NewsCollector: React.FC = () => {
             initialValues={{
               depth: 2,
               max_pages_per_source: 10,
-              kb_id: datasets.length === 1 ? datasets[0].id : undefined
+              kb_id: datasets.length === 1 ? datasets[0].id : undefined,
+              parse: false
             }}
           >
             <Form.Item
@@ -948,13 +952,32 @@ const NewsCollector: React.FC = () => {
               />
             </Form.Item>
 
+            <Form.Item
+              name="parse"
+              label={
+                <span>
+                  自动解析
+                  <Tooltip title="上传后立即解析文档，解析完成后内容可用于检索和问答。关闭时只上传不解析，可稍后手动解析。">
+                    <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                  </Tooltip>
+                </span>
+              }
+              valuePropName="checked"
+            >
+              <Switch 
+                checkedChildren="开启" 
+                unCheckedChildren="关闭"
+              />
+            </Form.Item>
+
             <Alert
               type="info"
               message="抓取说明"
               description={
                 <div>
-                  <p><strong>目标知识库：</strong>抓取的新闻内容将自动上传到选定的知识库并解析，解析完成后可用于检索和问答</p>
+                  <p><strong>目标知识库：</strong>抓取的新闻内容将自动上传到选定的知识库</p>
                   <p style={{ marginTop: 8 }}><strong>抓取深度：</strong>控制从首页开始的链接递归层级</p>
+                  <p style={{ marginTop: 8 }}><strong>自动解析：</strong>开启后上传完成立即解析，关闭则只上传不解析（可稍后手动解析）</p>
                   <ul style={{ marginLeft: 20, marginTop: 4 }}>
                     <li>深度 1：仅抓取首页</li>
                     <li>深度 2：首页 + 首页链接的页面</li>
