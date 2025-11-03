@@ -27,7 +27,7 @@ from api.db.services import duplicate_name
 from api.db.services.common_service import CommonService
 from api.db.services.document_service import DocumentService
 from api.db.services.file2document_service import File2DocumentService
-from api.utils import get_uuid
+from common.misc_utils import get_uuid
 from api.utils.file_utils import filename_type, read_potential_broken_pdf, thumbnail_img
 from rag.llm.cv_model import GptV4
 from rag.utils.storage_factory import STORAGE_IMPL
@@ -160,6 +160,23 @@ class FileService(CommonService):
         else:
             result_ids.append(folder_id)
         return result_ids
+
+    @classmethod
+    @DB.connection_context()
+    def get_all_file_ids_by_tenant_id(cls, tenant_id):
+        fields = [cls.model.id]
+        files = cls.model.select(*fields).where(cls.model.tenant_id == tenant_id)
+        files.order_by(cls.model.create_time.asc())
+        offset, limit = 0, 100
+        res = []
+        while True:
+            file_batch = files.offset(offset).limit(limit)
+            _temp = list(file_batch.dicts())
+            if not _temp:
+                break
+            res.extend(_temp)
+            offset += limit
+        return res
 
     @classmethod
     @DB.connection_context()
@@ -460,6 +477,7 @@ class FileService(CommonService):
                     "id": doc_id,
                     "kb_id": kb.id,
                     "parser_id": self.get_parser(filetype, filename, kb.parser_id),
+                    "pipeline_id": kb.pipeline_id,
                     "parser_config": kb.parser_config,
                     "created_by": user_id,
                     "type": filetype,
@@ -477,6 +495,16 @@ class FileService(CommonService):
                 err.append(file.filename + ": " + str(e))
 
         return err, files
+
+    @classmethod
+    @DB.connection_context()
+    def list_all_files_by_parent_id(cls, parent_id):
+        try:
+            files = cls.model.select().where((cls.model.parent_id == parent_id) & (cls.model.id != parent_id))
+            return list(files)
+        except Exception:
+            logging.exception("list_by_parent_id failed")
+            raise RuntimeError("Database error (list_by_parent_id)!")
 
     @staticmethod
     def parse_docs(file_objs, user_id):
@@ -515,7 +543,7 @@ class FileService(CommonService):
             return ParserType.AUDIO.value
         if re.search(r"\.(ppt|pptx|pages)$", filename):
             return ParserType.PRESENTATION.value
-        if re.search(r"\.(eml)$", filename):
+        if re.search(r"\.(msg|eml)$", filename):
             return ParserType.EMAIL.value
         return default
 

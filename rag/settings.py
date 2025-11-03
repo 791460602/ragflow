@@ -15,8 +15,9 @@
 #
 import os
 import logging
-from api.utils import get_base_config, decrypt_database_config
-from api.utils.file_utils import get_project_base_directory
+from api.utils.configs import get_base_config, decrypt_database_config
+from common.file_utils import get_project_base_directory
+from api.utils.common import pip_install_torch
 
 # Server
 RAG_CONF_PATH = os.path.join(get_project_base_directory(), "conf")
@@ -53,8 +54,10 @@ elif STORAGE_IMPL_TYPE == 'OSS':
 try:
     REDIS = decrypt_database_config(name="redis")
 except Exception:
-    REDIS = {}
-    pass
+    try:
+        REDIS = get_base_config("redis", {})
+    except Exception:
+        REDIS = {}
 DOC_MAXIMUM_SIZE = int(os.environ.get("MAX_CONTENT_LENGTH", 128 * 1024 * 1024))
 DOC_BULK_SIZE = int(os.environ.get("DOC_BULK_SIZE", 4))
 EMBEDDING_BATCH_SIZE = int(os.environ.get("EMBEDDING_BATCH_SIZE", 16))
@@ -65,6 +68,7 @@ TAG_FLD = "tag_feas"
 
 PARALLEL_DEVICES = 0
 try:
+    pip_install_torch()
     import torch.cuda
     PARALLEL_DEVICES = torch.cuda.device_count()
     logging.info(f"found {PARALLEL_DEVICES} gpus")

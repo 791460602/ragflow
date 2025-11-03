@@ -23,7 +23,8 @@ from api.db import UserTenantRole, StatusEnum
 from api.db.db_models import UserTenant
 from api.db.services.user_service import UserTenantService, UserService
 
-from api.utils import get_uuid, delta_seconds
+from common.misc_utils import get_uuid
+from common.time_utils import delta_seconds
 from api.utils.api_utils import get_json_result, validate_request, server_error_response, get_data_error_result
 from api.utils.web_utils import send_invite_email
 
@@ -70,7 +71,8 @@ def create(tenant_id):
             return get_data_error_result(message=f"{invite_user_email} is already in the team.")
         if user_tenant_role == UserTenantRole.OWNER:
             return get_data_error_result(message=f"{invite_user_email} is the owner of the team.")
-        return get_data_error_result(message=f"{invite_user_email} is in the team, but the role: {user_tenant_role} is invalid.")
+        return get_data_error_result(
+            message=f"{invite_user_email} is in the team, but the role: {user_tenant_role} is invalid.")
 
     UserTenantService.save(
         id=get_uuid(),
@@ -132,7 +134,8 @@ def tenant_list():
 @login_required
 def agree(tenant_id):
     try:
-        UserTenantService.filter_update([UserTenant.tenant_id == tenant_id, UserTenant.user_id == current_user.id], {"role": UserTenantRole.NORMAL})
+        UserTenantService.filter_update([UserTenant.tenant_id == tenant_id, UserTenant.user_id == current_user.id],
+                                        {"role": UserTenantRole.NORMAL})
         return get_json_result(data=True)
     except Exception as e:
         return server_error_response(e)

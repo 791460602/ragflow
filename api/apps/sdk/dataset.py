@@ -28,7 +28,7 @@ from api.db.services.file2document_service import File2DocumentService
 from api.db.services.file_service import FileService
 from api.db.services.knowledgebase_service import KnowledgebaseService
 from api.db.services.user_service import TenantService
-from api.utils import get_uuid
+from common.misc_utils import get_uuid
 from api.utils.api_utils import (
     deep_merge,
     get_error_argument_result,
@@ -215,7 +215,8 @@ def delete(tenant_id):
                     continue
                 kb_id_instance_pairs.append((kb_id, kb))
             if len(error_kb_ids) > 0:
-                return get_error_permission_result(message=f"""User '{tenant_id}' lacks permission for datasets: '{", ".join(error_kb_ids)}'""")
+                return get_error_permission_result(
+                    message=f"""User '{tenant_id}' lacks permission for datasets: '{", ".join(error_kb_ids)}'""")
 
         errors = []
         success_count = 0
@@ -232,7 +233,8 @@ def delete(tenant_id):
                     ]
                 )
                 File2DocumentService.delete_by_document_id(doc.id)
-            FileService.filter_delete([File.source_type == FileSource.KNOWLEDGEBASE, File.type == "folder", File.name == kb.name])
+            FileService.filter_delete(
+                [File.source_type == FileSource.KNOWLEDGEBASE, File.type == "folder", File.name == kb.name])
             if not KnowledgebaseService.delete_by_id(kb_id):
                 errors.append(f"Delete dataset error for {kb_id}")
                 continue
@@ -329,7 +331,8 @@ def update(tenant_id, dataset_id):
     try:
         kb = KnowledgebaseService.get_or_none(id=dataset_id, tenant_id=tenant_id)
         if kb is None:
-            return get_error_permission_result(message=f"User '{tenant_id}' lacks permission for dataset '{dataset_id}'")
+            return get_error_permission_result(
+                message=f"User '{tenant_id}' lacks permission for dataset '{dataset_id}'")
 
         if req.get("parser_config"):
             req["parser_config"] = deep_merge(kb.parser_config, req["parser_config"])
@@ -341,7 +344,8 @@ def update(tenant_id, dataset_id):
             del req["parser_config"]
 
         if "name" in req and req["name"].lower() != kb.name.lower():
-            exists = KnowledgebaseService.get_or_none(name=req["name"], tenant_id=tenant_id, status=StatusEnum.VALID.value)
+            exists = KnowledgebaseService.get_or_none(name=req["name"], tenant_id=tenant_id,
+                                                      status=StatusEnum.VALID.value)
             if exists:
                 return get_error_data_result(message=f"Dataset name '{req['name']}' already exists")
 
@@ -349,7 +353,8 @@ def update(tenant_id, dataset_id):
             if not req["embd_id"]:
                 req["embd_id"] = kb.embd_id
             if kb.chunk_num != 0 and req["embd_id"] != kb.embd_id:
-                return get_error_data_result(message=f"When chunk_num ({kb.chunk_num}) > 0, embedding_model must remain {kb.embd_id}")
+                return get_error_data_result(
+                    message=f"When chunk_num ({kb.chunk_num}) > 0, embedding_model must remain {kb.embd_id}")
             ok, err = verify_embedding_availability(req["embd_id"], tenant_id)
             if not ok:
                 return err
@@ -359,10 +364,12 @@ def update(tenant_id, dataset_id):
                 return get_error_argument_result(message="'pagerank' can only be set when doc_engine is elasticsearch")
 
             if req["pagerank"] > 0:
-                settings.docStoreConn.update({"kb_id": kb.id}, {PAGERANK_FLD: req["pagerank"]}, search.index_name(kb.tenant_id), kb.id)
+                settings.docStoreConn.update({"kb_id": kb.id}, {PAGERANK_FLD: req["pagerank"]},
+                                             search.index_name(kb.tenant_id), kb.id)
             else:
                 # Elasticsearch requires PAGERANK_FLD be non-zero!
-                settings.docStoreConn.update({"exists": PAGERANK_FLD}, {"remove": PAGERANK_FLD}, search.index_name(kb.tenant_id), kb.id)
+                settings.docStoreConn.update({"exists": PAGERANK_FLD}, {"remove": PAGERANK_FLD},
+                                             search.index_name(kb.tenant_id), kb.id)
 
         if not KnowledgebaseService.update_by_id(kb.id, req):
             return get_error_data_result(message="Update dataset error.(Database error)")
@@ -455,14 +462,8 @@ def list_datasets(tenant_id):
 
         # Get joined tenants (where user has NORMAL role) and add user's own tenant_id
         tenants = TenantService.get_joined_tenants_by_user_id(tenant_id)
-        joined_tenant_ids = [m["tenant_id"] for m in tenants]
-        
-        # Always include user's own tenant_id to ensure their own datasets are visible
-        if tenant_id not in joined_tenant_ids:
-            joined_tenant_ids.append(tenant_id)
-        
-        kbs = KnowledgebaseService.get_list(
-            joined_tenant_ids,
+        kbs, total = KnowledgebaseService.get_list(
+            [m["tenant_id"] for m in tenants],
             tenant_id,
             args["page"],
             args["page_size"],
@@ -475,14 +476,15 @@ def list_datasets(tenant_id):
         response_data_list = []
         for kb in kbs:
             response_data_list.append(remap_dictionary_keys(kb))
-        return get_result(data=response_data_list)
+        return get_result(data=response_data_list, total=total)
     except OperationalError as e:
         logging.exception(e)
         return get_error_data_result(message="Database operation failed")
 
+
 @manager.route('/datasets/<dataset_id>/knowledge_graph', methods=['GET'])  # noqa: F821
 @token_required
-def knowledge_graph(tenant_id,dataset_id):
+def knowledge_graph(tenant_id, dataset_id):
     if not KnowledgebaseService.accessible(dataset_id, tenant_id):
         return get_result(
             data=False,
@@ -498,7 +500,7 @@ def knowledge_graph(tenant_id,dataset_id):
     obj = {"graph": {}, "mind_map": {}}
     if not settings.docStoreConn.indexExist(search.index_name(kb.tenant_id), dataset_id):
         return get_result(data=obj)
-    sres = settings.retrievaler.search(req, search.index_name(kb.tenant_id), [dataset_id])
+    sres = settings.retriever.search(req, search.index_name(kb.tenant_id), [dataset_id])
     if not len(sres.ids):
         return get_result(data=obj)
 
@@ -514,14 +516,16 @@ def knowledge_graph(tenant_id,dataset_id):
     if "nodes" in obj["graph"]:
         obj["graph"]["nodes"] = sorted(obj["graph"]["nodes"], key=lambda x: x.get("pagerank", 0), reverse=True)[:256]
         if "edges" in obj["graph"]:
-            node_id_set = { o["id"] for o in obj["graph"]["nodes"] }
-            filtered_edges = [o for o in obj["graph"]["edges"] if o["source"] != o["target"] and o["source"] in node_id_set and o["target"] in node_id_set]
+            node_id_set = {o["id"] for o in obj["graph"]["nodes"]}
+            filtered_edges = [o for o in obj["graph"]["edges"] if
+                              o["source"] != o["target"] and o["source"] in node_id_set and o["target"] in node_id_set]
             obj["graph"]["edges"] = sorted(filtered_edges, key=lambda x: x.get("weight", 0), reverse=True)[:128]
     return get_result(data=obj)
 
+
 @manager.route('/datasets/<dataset_id>/knowledge_graph', methods=['DELETE'])  # noqa: F821
 @token_required
-def delete_knowledge_graph(tenant_id,dataset_id):
+def delete_knowledge_graph(tenant_id, dataset_id):
     if not KnowledgebaseService.accessible(dataset_id, tenant_id):
         return get_result(
             data=False,
@@ -529,6 +533,7 @@ def delete_knowledge_graph(tenant_id,dataset_id):
             code=settings.RetCode.AUTHENTICATION_ERROR
         )
     _, kb = KnowledgebaseService.get_by_id(dataset_id)
-    settings.docStoreConn.delete({"knowledge_graph_kwd": ["graph", "subgraph", "entity", "relation"]}, search.index_name(kb.tenant_id), dataset_id)
+    settings.docStoreConn.delete({"knowledge_graph_kwd": ["graph", "subgraph", "entity", "relation"]},
+                                 search.index_name(kb.tenant_id), dataset_id)
 
     return get_result(data=True)
