@@ -14,7 +14,6 @@ import {
   IDeleteLlmRequestBody,
 } from '@/interfaces/request/llm';
 import userService from '@/services/user-service';
-import { sortLLmFactoryListBySpecifiedOrder } from '@/utils/common-util';
 import { getLLMIconName, getRealModelName } from '@/utils/llm-util';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DefaultOptionType } from 'antd/es/select';
@@ -62,9 +61,10 @@ function buildLlmOptionsWithIcon(x: IThirdOAIModel) {
       <div className="flex items-center justify-center gap-6">
         <LlmIcon
           name={getLLMIconName(x.fid, x.llm_name)}
-          width={26}
-          height={26}
+          width={24}
+          height={24}
           size={'small'}
+          imgClass="size-6"
         />
         <span>{getRealModelName(x.llm_name)}</span>
       </div>
@@ -239,7 +239,8 @@ export const useSelectLlmList = () => {
     const currentList = factoryList.filter((x) =>
       Object.keys(myLlmList).every((y) => y !== x.name),
     );
-    return sortLLmFactoryListBySpecifiedOrder(currentList);
+    return currentList;
+    // return sortLLmFactoryListBySpecifiedOrder(currentList);
   }, [factoryList, myLlmList]);
 
   return {
@@ -402,6 +403,7 @@ export const useDeleteFactory = () => {
         queryClient.invalidateQueries({ queryKey: ['myLlmList'] });
         queryClient.invalidateQueries({ queryKey: ['myLlmListDetailed'] });
         queryClient.invalidateQueries({ queryKey: ['factoryList'] });
+        queryClient.invalidateQueries({ queryKey: ['llmList'] });
         message.success(t('message.deleted'));
       }
       return data.code;
