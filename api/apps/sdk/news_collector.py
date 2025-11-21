@@ -26,7 +26,7 @@ from api.db.services.news_service import NewsSourceService, NewsTaskService, New
 from api.db.services.knowledgebase_service import KnowledgebaseService
 from api.db.services.document_service import DocumentService
 from api.db.services.file_service import FileService
-from api.utils import get_uuid
+from common.misc_utils import get_uuid
 from api.utils.file_utils import get_project_base_directory
 from rag.utils.storage_factory import STORAGE_IMPL
 from datetime import datetime, timedelta

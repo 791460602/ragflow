@@ -5,7 +5,7 @@ from api.db.services.document_service import DocumentService
 from api.db.services.file2document_service import File2DocumentService
 from api.db.services.knowledgebase_service import KnowledgebaseService
 from api.utils.api_utils import server_error_response, token_required
-from api.utils import get_uuid
+from common.misc_utils import get_uuid
 from api.db import FileType
 from api.db.services import duplicate_name
 from api.db.services.file_service import FileService
@@ -216,7 +216,6 @@ from pathlib import Path
 from api.db.services.document_service import DocumentService
 from api.db.services.file2document_service import File2DocumentService
 from api.db.services.knowledgebase_service import KnowledgebaseService
-from api.utils.api_utils import server_error_response, token_required
 from common.misc_utils import get_uuid
 from api.db import FileType
 from api.db.services import duplicate_name
@@ -226,7 +225,6 @@ from api.utils.file_utils import filename_type
 from rag.utils.storage_factory import STORAGE_IMPL
 from api.db.services.knowledgebase_service import KnowledgebaseService
 from api.utils.api_utils import server_error_response, get_data_error_result, token_required
-from api.utils import get_uuid
 from api.db import FileType
 from common import settings
 

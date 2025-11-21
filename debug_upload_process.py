@@ -21,7 +21,7 @@ def debug_upload_process():
         from api.interfaces.news_crawler_interface import NewsSource, CrawlTask
         from api.crawlers.news_crawler_implementations import DemoCrawler
         from api.apps.sdk.news_collector import NewsCollector
-        from api.utils import get_uuid
+        from common.misc_utils import get_uuid
         
         print("🔍 调试新闻收集器上传过程")
         print("=" * 50)

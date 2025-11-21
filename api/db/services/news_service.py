@@ -23,7 +23,7 @@ from api.db.db_models import NewsSource, NewsTask, NewsContent, Knowledgebase, D
 from api.db.services.common_service import CommonService
 from api.db.services.document_service import DocumentService
 from api.db.services.knowledgebase_service import KnowledgebaseService
-from api.utils import get_uuid
+from common.misc_utils import get_uuid
 from api.db.db_models import DB
 # 新增: 导入 hashlib 用于生成内容哈希值
 import hashlib

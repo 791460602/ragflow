@@ -93,7 +93,7 @@ def create_demo_data():
     try:
         # 导入新闻收集器服务
         from api.db.services.news_service import NewsSourceService
-        from api.utils import get_uuid
+        from common.misc_utils import get_uuid
         
         logger.info("正在创建演示新闻源...")
         

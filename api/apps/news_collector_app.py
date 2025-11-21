@@ -24,7 +24,7 @@ from flask_login import login_required, current_user
 from api.utils.api_utils import get_json_result, server_error_response, validate_request
 from api.db.services.news_service import NewsSourceService, NewsTaskService, NewsContentService
 from api.db.services.knowledgebase_service import KnowledgebaseService
-from api.utils import get_uuid
+from common.misc_utils import get_uuid
 from datetime import datetime, timedelta
 import threading
 import traceback
