@@ -23,9 +23,8 @@ import { ChevronDownIcon, XIcon } from 'lucide-react';
 import * as React from 'react';
 import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { VariableType } from '../../constant';
+import { JsonSchemaDataType } from '../../constant';
 import {
-  useFilterStructuredOutputByValue,
   useFindAgentStructuredOutputLabel,
   useShowSecondaryMenu,
 } from '../../hooks/use-build-structured-output';
@@ -53,7 +52,7 @@ interface GroupedSelectWithSecondaryMenuProps {
   value?: string;
   onChange?: (value: string) => void;
   placeholder?: string;
-  type?: VariableType;
+  types?: JsonSchemaDataType[];
 }
 
 export function GroupedSelectWithSecondaryMenu({
@@ -61,13 +60,12 @@ export function GroupedSelectWithSecondaryMenu({
   value,
   onChange,
   placeholder,
-  type,
+  types,
 }: GroupedSelectWithSecondaryMenuProps) {
   const { t } = useTranslation();
   const [open, setOpen] = React.useState(false);
 
   const showSecondaryMenu = useShowSecondaryMenu();
-  const filterStructuredOutput = useFilterStructuredOutputByValue();
   const findAgentStructuredOutputLabel = useFindAgentStructuredOutputLabel();
 
   // Find the label of the selected item
@@ -154,16 +152,12 @@ export function GroupedSelectWithSecondaryMenu({
                   );
 
                   if (shouldShowSecondary) {
-                    const filteredStructuredOutput = filterStructuredOutput(
-                      option.value,
-                    );
                     return (
                       <StructuredOutputSecondaryMenu
                         key={option.value}
                         data={option}
                         click={handleSecondaryMenuClick}
-                        filteredStructuredOutput={filteredStructuredOutput}
-                        type={type}
+                        types={types}
                       ></StructuredOutputSecondaryMenu>
                     );
                   }
@@ -215,8 +209,12 @@ export function GroupedSelectWithSecondaryMenu({
                         onChange?.(option.value);
                         setOpen(false);
                       }}
+                      className="flex items-center justify-between"
                     >
-                      {option.label}
+                      <span> {option.label}</span>
+                      <span className="text-text-secondary">
+                        {get(option, 'type')}
+                      </span>
                     </CommandItem>
                   );
                 })}

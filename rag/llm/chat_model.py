@@ -22,7 +22,6 @@ import re
 import time
 from abc import ABC
 from copy import deepcopy
-from typing import Any, Protocol
 from urllib.parse import urljoin
 
 import json_repair
@@ -63,10 +62,6 @@ class ReActMode(StrEnum):
 ERROR_PREFIX = "**ERROR**"
 LENGTH_NOTIFICATION_CN = "······\n由于大模型的上下文窗口大小限制，回答已经被大模型截断。"
 LENGTH_NOTIFICATION_EN = "...\nThe answer is truncated by your chosen LLM due to its limitation on context length."
-
-
-class ToolCallSession(Protocol):
-    def tool_call(self, name: str, arguments: dict[str, Any]) -> str: ...
 
 
 class Base(ABC):
@@ -1390,7 +1385,7 @@ class LiteLLMBase(ABC):
         "TogetherAI",
         "Anthropic",
         "Ollama",
-        "Meituan",
+        "LongCat",
         "CometAPI",
         "SILICONFLOW",
         "OpenRouter",
@@ -1402,6 +1397,7 @@ class LiteLLMBase(ABC):
         "01.AI",
         "GiteeAI",
         "302.AI",
+        "Jiekou.AI",
     ]
 
     def __init__(self, key, model_name, base_url=None, **kwargs):
@@ -1639,6 +1635,15 @@ class LiteLLMBase(ABC):
                 provider_cfg["allow_fallbacks"] = False
                 extra_body["provider"] = provider_cfg
                 completion_args.update({"extra_body": extra_body})
+
+        # Ollama deployments commonly sit behind a reverse proxy that enforces
+        # Bearer auth. Ensure the Authorization header is set when an API key
+        # is provided, while respecting any user-supplied headers. #11350
+        extra_headers = deepcopy(completion_args.get("extra_headers") or {})
+        if self.provider == SupportedLiteLLMProvider.Ollama and self.api_key and "Authorization" not in extra_headers:
+            extra_headers["Authorization"] = f"Bearer {self.api_key}"
+        if extra_headers:
+            completion_args["extra_headers"] = extra_headers
         return completion_args
 
     def chat_with_tools(self, system: str, history: list, gen_conf: dict = {}):

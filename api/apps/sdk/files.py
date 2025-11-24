@@ -16,9 +16,7 @@
 
 import pathlib
 import re
-
-import flask
-from flask import request
+from quart import request, make_response
 from pathlib import Path
 
 from api.db.services.document_service import DocumentService
@@ -39,15 +37,13 @@ from api.db.services import duplicate_name
 
 from api.utils.file_utils import filename_type
 
-from rag.utils.storage_factory import STORAGE_IMPL
+from common import settings
 from api.db.services.file_service import FileService
 
 
-from api import settings
-
 @manager.route('/file/upload', methods=['POST'])  # noqa: F821
 @token_required
-def upload(tenant_id):
+async def upload(tenant_id):
     """
     Upload a file to the system.
     ---
@@ -89,15 +85,17 @@ def upload(tenant_id):
                     type: string
                     description: File type (e.g., document, folder)
     """
-    pf_id = request.form.get("parent_id")
+    form = await request.form
+    files = await request.files
+    pf_id = form.get("parent_id")
 
     if not pf_id:
         root_folder = FileService.get_root_folder(tenant_id)
         pf_id = root_folder["id"]
 
-    if 'file' not in request.files:
+    if 'file' not in files:
         return get_json_result(data=False, message='No file part!', code=400)
-    file_objs = request.files.getlist('file')
+    file_objs = files.getlist('file')
 
     for file_obj in file_objs:
         if file_obj.filename == '':
@@ -136,7 +134,7 @@ def upload(tenant_id):
 
             filetype = filename_type(file_obj_names[file_len - 1])
             location = file_obj_names[file_len - 1]
-            while STORAGE_IMPL.obj_exist(last_folder.id, location):
+            while settings.STORAGE_IMPL.obj_exist(last_folder.id, location):
                 location += "_"
             blob = file_obj.read()
             filename = duplicate_name(FileService.query, name=file_obj_names[file_len - 1], parent_id=last_folder.id)
@@ -152,7 +150,7 @@ def upload(tenant_id):
                 "size": len(blob),
             }
             file = FileService.insert(file)
-            STORAGE_IMPL.put(last_folder.id, location, blob)
+            settings.STORAGE_IMPL.put(last_folder.id, location, blob)
             file_res.append(file.to_json())
         return get_json_result(data=file_res)
     except Exception as e:
@@ -246,7 +244,7 @@ def convert(tenant_id):
 
 @manager.route('/file/create', methods=['POST']) # noqa: F821
 @token_required
-def create(tenant_id):
+async def create(tenant_id):
     """
     Create a new file or folder.
     ---
@@ -288,9 +286,9 @@ def create(tenant_id):
                 type:
                   type: string
     """
-    req = request.json
-    pf_id = request.json.get("parent_id")
-    input_file_type = request.json.get("type")
+    req = await request.json
+    pf_id = await request.json.get("parent_id")
+    input_file_type = await request.json.get("type")
     if not pf_id:
         root_folder = FileService.get_root_folder(tenant_id)
         pf_id = root_folder["id"]
@@ -545,7 +543,7 @@ def get_all_parent_folders(tenant_id):
 
 @manager.route('/file/rm', methods=['POST'])  # noqa: F821
 @token_required
-def rm(tenant_id):
+async def rm(tenant_id):
     """
     Delete one or multiple files/folders.
     ---
@@ -576,7 +574,7 @@ def rm(tenant_id):
               type: boolean
               example: true
     """
-    req = request.json
+    req = await request.json
     file_ids = req["file_ids"]
     try:
         for file_id in file_ids:
@@ -592,10 +590,10 @@ def rm(tenant_id):
                     e, file = FileService.get_by_id(inner_file_id)
                     if not e:
                         return get_json_result(message="File not found!", code=404)
-                    STORAGE_IMPL.rm(file.parent_id, file.location)
+                    settings.STORAGE_IMPL.rm(file.parent_id, file.location)
                 FileService.delete_folder_by_pf_id(tenant_id, file_id)
             else:
-                STORAGE_IMPL.rm(file.parent_id, file.location)
+                settings.STORAGE_IMPL.rm(file.parent_id, file.location)
                 if not FileService.delete(file):
                     return get_json_result(message="Database error (File removal)!", code=500)
 
@@ -619,7 +617,7 @@ def rm(tenant_id):
 
 @manager.route('/file/rename', methods=['POST'])  # noqa: F821
 @token_required
-def rename(tenant_id):
+async def rename(tenant_id):
     """
     Rename a file.
     ---
@@ -651,7 +649,7 @@ def rename(tenant_id):
               type: boolean
               example: true
     """
-    req = request.json
+    req = await request.json
     try:
         e, file = FileService.get_by_id(req["file_id"])
         if not e:
@@ -680,7 +678,7 @@ def rename(tenant_id):
 
 @manager.route('/file/get/<file_id>', methods=['GET'])  # noqa: F821
 @token_required
-def get(tenant_id, file_id):
+async def get(tenant_id, file_id):
     """
     Download a file.
     ---
@@ -709,12 +707,12 @@ def get(tenant_id, file_id):
         if not e:
             return get_json_result(message="Document not found!", code=404)
 
-        blob = STORAGE_IMPL.get(file.parent_id, file.location)
+        blob = settings.STORAGE_IMPL.get(file.parent_id, file.location)
         if not blob:
             b, n = File2DocumentService.get_storage_address(file_id=file_id)
-            blob = STORAGE_IMPL.get(b, n)
+            blob = settings.STORAGE_IMPL.get(b, n)
 
-        response = flask.make_response(blob)
+        response = await make_response(blob)
         ext = re.search(r"\.([^.]+)$", file.name)
         if ext:
             if file.type == FileType.VISUAL.value:
@@ -728,7 +726,7 @@ def get(tenant_id, file_id):
 
 @manager.route('/file/mv', methods=['POST'])  # noqa: F821
 @token_required
-def move(tenant_id):
+async def move(tenant_id):
     """
     Move one or multiple files to another folder.
     ---
@@ -762,7 +760,7 @@ def move(tenant_id):
               type: boolean
               example: true
     """
-    req = request.json
+    req = await request.json
     try:
         file_ids = req["src_file_ids"]
         parent_id = req["dest_file_id"]
@@ -786,8 +784,8 @@ def move(tenant_id):
         return server_error_response(e)
 @manager.route('/file/convert', methods=['POST'])  # noqa: F821
 @token_required
-def convert_files(tenant_id):
-    req = request.json
+async def convert(tenant_id):
+    req = await request.json
     kb_ids = req["kb_ids"]
     file_ids = req["file_ids"]
     file2documents = []

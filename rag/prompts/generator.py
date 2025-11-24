@@ -25,7 +25,7 @@ import trio
 from common.misc_utils import hash_str2int
 from rag.nlp import rag_tokenizer
 from rag.prompts.template import load_prompt
-from rag.settings import TAG_FLD
+from common.constants import TAG_FLD
 from common.token_utils import encoder, num_tokens_from_string
 
 
@@ -52,7 +52,7 @@ def chunks_format(reference):
             "similarity": chunk.get("similarity"),
             "vector_similarity": chunk.get("vector_similarity"),
             "term_similarity": chunk.get("term_similarity"),
-            "doc_type": chunk.get("doc_type_kwd"),
+            "doc_type": get_value(chunk, "doc_type_kwd", "doc_type"),
         }
         for chunk in reference.get("chunks", [])
     ]
@@ -201,7 +201,7 @@ def question_proposal(chat_mdl, content, topn=3):
 
 
 def full_question(tenant_id=None, llm_id=None, messages=[], language=None, chat_mdl=None):
-    from api.db import LLMType
+    from common.constants import LLMType
     from api.db.services.llm_service import LLMBundle
     from api.db.services.tenant_llm_service import TenantLLMService
 
@@ -235,7 +235,7 @@ def full_question(tenant_id=None, llm_id=None, messages=[], language=None, chat_
 
 
 def cross_languages(tenant_id, llm_id, query, languages=[]):
-    from api.db import LLMType
+    from common.constants import LLMType
     from api.db.services.llm_service import LLMBundle
     from api.db.services.tenant_llm_service import TenantLLMService
 
@@ -429,7 +429,7 @@ def rank_memories(chat_mdl, goal:str, sub_goal:str, tool_call_summaries: list[st
     return re.sub(r"^.*</think>", "", ans, flags=re.DOTALL)
 
 
-def gen_meta_filter(chat_mdl, meta_data:dict, query: str) -> list:
+def gen_meta_filter(chat_mdl, meta_data:dict, query: str) -> dict:
     sys_prompt = PROMPT_JINJA_ENV.from_string(META_FILTER).render(
         current_date=datetime.datetime.today().strftime('%Y-%m-%d'),
         metadata_keys=json.dumps(meta_data),
@@ -440,11 +440,13 @@ def gen_meta_filter(chat_mdl, meta_data:dict, query: str) -> list:
     ans = re.sub(r"(^.*</think>|```json\n|```\n*$)", "", ans, flags=re.DOTALL)
     try:
         ans = json_repair.loads(ans)
-        assert isinstance(ans, list), ans
+        assert isinstance(ans, dict), ans
+        assert "conditions" in ans and isinstance(ans["conditions"], list), ans
         return ans
     except Exception:
         logging.exception(f"Loading json failure: {ans}")
-    return []
+
+    return {"conditions": []}
 
 
 def gen_json(system_prompt:str, user_prompt:str, chat_mdl, gen_conf = None):
