@@ -26,7 +26,7 @@ from api.db.services.news_service import NewsSourceService, NewsTaskService, New
 from api.db.services.knowledgebase_service import KnowledgebaseService
 from api.db.services.document_service import DocumentService
 from api.db.services.file_service import FileService
-from api.utils import get_uuid
+from common.misc_utils import get_uuid
 from api.utils.file_utils import get_project_base_directory
 from rag.utils.storage_factory import STORAGE_IMPL
 from datetime import datetime, timedelta
@@ -235,7 +235,7 @@ async def _upload_to_knowledgebase(kb_id: str, tenant_id: str, file_path: str, a
         # DocumentService.insert 会自动增加知识库的文档数量
         doc = DocumentService.insert(doc_data)
         
-        # 获取或创建知识库文件夹
+        # 获取或创建知识库文件夹 
         kb_root_folder = FileService.get_kb_folder(tenant_id)
         if kb_root_folder:
             kb_folder = FileService.new_a_file_from_kb(

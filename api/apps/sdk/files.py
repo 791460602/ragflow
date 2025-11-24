@@ -1,197 +1,3 @@
-from flask import request, make_response
-from pathlib import Path
-
-from api.db.services.document_service import DocumentService
-from api.db.services.file2document_service import File2DocumentService
-from api.db.services.knowledgebase_service import KnowledgebaseService
-from api.utils.api_utils import server_error_response, token_required
-from api.utils import get_uuid
-from api.db import FileType
-from api.db.services import duplicate_name
-from api.db.services.file_service import FileService
-from api.utils.api_utils import get_json_result
-from api.utils.file_utils import filename_type
-from rag.utils.storage_factory import STORAGE_IMPL
-
-
-@manager.route('/file/upload', methods=['POST'])  # noqa: F821
-@token_required
-def upload(tenant_id):
-    """
-    Upload a file to the system.
-    """
-    try:
-        # Merge-resolution placeholder: original upload logic omitted in summarized file.
-        return get_json_result(data=False, message="Not implemented (upload)", code=501)
-    except Exception as e:
-        return server_error_response(e)
-
-
-@manager.route('/file/create', methods=['POST'])  # noqa: F821
-@token_required
-def create(tenant_id):
-    """
-    Create a new file or folder.
-    """
-    try:
-        return get_json_result(data=False, message="Not implemented (create)", code=501)
-    except Exception as e:
-        return server_error_response(e)
-
-
-@manager.route('/file/list', methods=['GET'])  # noqa: F821
-@token_required
-def list_files(tenant_id):
-    """
-    List files under a specific folder.
-    """
-    try:
-        return get_json_result(data=False, message="Not implemented (list)", code=501)
-    except Exception as e:
-        return server_error_response(e)
-
-
-@manager.route('/file/root_folder', methods=['GET'])  # noqa: F821
-@token_required
-def get_root_folder(tenant_id):
-    """
-    Get user's root folder.
-    """
-    try:
-        root_folder = FileService.get_root_folder(tenant_id)
-        return get_json_result(data={"root_folder": root_folder})
-    except Exception as e:
-        return server_error_response(e)
-
-
-@manager.route('/file/parent_folder', methods=['GET'])  # noqa: F821
-@token_required
-def get_parent_folder():
-    """
-    Get parent folder info of a file.
-    """
-    file_id = request.args.get("file_id")
-    try:
-        e, file = FileService.get_by_id(file_id)
-        if not e:
-            return get_json_result(data=False, message="File not found", code=404)
-        parent_folder = FileService.get_parent_folder(file_id)
-        return get_json_result(data={"parent_folder": parent_folder.to_json()})
-    except Exception as e:
-        return server_error_response(e)
-
-
-@manager.route('/file/all_parent_folder', methods=['GET'])  # noqa: F821
-@token_required
-def get_all_parent_folders(tenant_id):
-    """
-    Get all parent folders of a file.
-    """
-    file_id = request.args.get("file_id")
-    try:
-        e, file = FileService.get_by_id(file_id)
-        if not e:
-            return get_json_result(data=False, message="File not found", code=404)
-        parent_folders = FileService.get_all_parent_folders(file_id)
-        parent_folders_res = [folder.to_json() for folder in parent_folders]
-        return get_json_result(data={"parent_folders": parent_folders_res})
-    except Exception as e:
-        return server_error_response(e)
-
-
-@manager.route('/file/rm', methods=['POST'])  # noqa: F821
-@token_required
-def rm(tenant_id):
-    """
-    Delete one or multiple files/folders.
-    """
-    req = request.json
-    file_ids = req.get("file_ids", [])
-    try:
-        for file_id in file_ids:
-            # Placeholder: call FileService.delete or equivalent
-            FileService.delete_by_id(file_id)
-        return get_json_result(data=True)
-    except Exception as e:
-        return server_error_response(e)
-
-
-@manager.route('/file/rename', methods=['POST'])  # noqa: F821
-@token_required
-def rename(tenant_id):
-    """
-    Rename a file.
-    """
-    req = request.json
-    try:
-        file_id = req.get("file_id")
-        new_name = req.get("name")
-        e, file = FileService.get_by_id(file_id)
-        if not e:
-            return get_json_result(data=False, message="File not found", code=404)
-        # Basic rename using service
-        FileService.update_by_id(file_id, {"name": new_name})
-        return get_json_result(data=True)
-    except Exception as e:
-        return server_error_response(e)
-
-
-@manager.route('/file/get/<file_id>', methods=['GET'])  # noqa: F821
-@token_required
-def get(tenant_id, file_id):
-    """
-    Download a file.
-    """
-    try:
-        e, file = FileService.get_by_id(file_id)
-        if not e:
-            return get_json_result(data=False, message="File not found", code=404)
-        blob = STORAGE_IMPL.get(file.parent_id, file.location)
-        if not blob:
-            return get_json_result(data=False, message="Blob not found in storage", code=404)
-        response = make_response(blob)
-        response.headers["Content-Type"] = "application/octet-stream"
-        response.headers["Content-Disposition"] = f'attachment; filename="{file.name}"'
-        return response
-    except Exception as e:
-        return server_error_response(e)
-
-
-@manager.route('/file/mv', methods=['POST'])  # noqa: F821
-@token_required
-def move(tenant_id):
-    """
-    Move one or multiple files to another folder.
-    """
-    req = request.json
-    try:
-        file_ids = req.get("src_file_ids", [])
-        parent_id = req.get("dest_file_id")
-        FileService.move_file(file_ids, parent_id)
-        return get_json_result(data=True)
-    except Exception as e:
-        return server_error_response(e)
-
-
-@manager.route('/file/convert', methods=['POST'])  # noqa: F821
-@token_required
-def convert(tenant_id):
-    """
-    Convert files to documents and link them to datasets.
-    """
-    req = request.json
-    kb_ids = req.get("kb_ids", [])
-    file_ids = req.get("file_ids", [])
-    try:
-        # Placeholder implementation: product would iterate files and convert via DocumentService
-        files = FileService.get_by_ids(file_ids)
-        file2documents = []
-        for f in files:
-            file2documents.append({"file_id": f.id, "status": "skipped_placeholder"})
-        return get_json_result(data=file2documents)
-    except Exception as e:
-        return server_error_response(e)
-#
 #  Copyright 2025 The InfiniFlow Authors. All Rights Reserved.
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
@@ -218,23 +24,28 @@ from pathlib import Path
 from api.db.services.document_service import DocumentService
 from api.db.services.file2document_service import File2DocumentService
 from api.db.services.knowledgebase_service import KnowledgebaseService
-from api.utils.api_utils import server_error_response, token_required
+from api.utils.api_utils import (
+    get_data_error_result,
+    get_json_result,
+    server_error_response,
+    token_required,
+)
 from common.misc_utils import get_uuid
 from api.db import FileType
 from api.db.services import duplicate_name
-from api.db.services.file_service import FileService
-from api.utils.api_utils import get_json_result
+
+
+
+
 from api.utils.file_utils import filename_type
+
 from rag.utils.storage_factory import STORAGE_IMPL
-from api.db.services.knowledgebase_service import KnowledgebaseService
-from api.utils.api_utils import server_error_response, get_data_error_result, token_required
-from api.utils import get_uuid
-from api.db import FileType
+from api.db.services.file_service import FileService
+
+
 from api import settings
 
-
-@manager.route('/file/upload', methods=['POST']) # noqa: F821
-
+@manager.route('/file/upload', methods=['POST'])  # noqa: F821
 @token_required
 def upload(tenant_id):
     """
@@ -975,7 +786,7 @@ def move(tenant_id):
         return server_error_response(e)
 @manager.route('/file/convert', methods=['POST'])  # noqa: F821
 @token_required
-def convert(tenant_id):
+def convert_files(tenant_id):
     req = request.json
     kb_ids = req["kb_ids"]
     file_ids = req["file_ids"]
