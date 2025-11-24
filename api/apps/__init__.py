@@ -273,47 +273,6 @@ client_urls_prefix = [
 ]
 
 
-@login_manager.request_loader
-def load_user(web_request):
-    jwt = Serializer(secret_key=settings.SECRET_KEY)
-    authorization = web_request.headers.get("Authorization")
-    if authorization:
-        try:
-            # Handle Bearer token format
-            token = authorization
-            if authorization.startswith("Bearer "):
-                token = authorization[7:]  # Remove "Bearer " prefix
-            elif authorization.startswith("bearer "):
-                token = authorization[7:]  # Remove "bearer " prefix (case insensitive)
-            
-            access_token = str(jwt.loads(token))
-
-            if not access_token or not access_token.strip():
-                logging.warning("Authentication attempt with empty access token")
-                return None
-
-            # Access tokens should be UUIDs (32 hex characters)
-            if len(access_token.strip()) < 32:
-                logging.warning(f"Authentication attempt with invalid token format: {len(access_token)} chars")
-                return None
-
-            user = UserService.query(
-                access_token=access_token, status=StatusEnum.VALID.value
-            )
-            if user:
-                if not user[0].access_token or not user[0].access_token.strip():
-                    logging.warning(f"User {user[0].email} has empty access_token in database")
-                    return None
-                return user[0]
-            else:
-                return None
-        except Exception as e:
-            logging.warning(f"load_user got exception {e}")
-            return None
-    else:
-        return None
-
-
 @app.teardown_request
 def _db_close(exception):
     if exception:

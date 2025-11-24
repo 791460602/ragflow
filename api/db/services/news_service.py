@@ -18,7 +18,7 @@ import traceback
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Any
 
-from api.db import LLMType, StatusEnum
+from common.constants import LLMType, StatusEnum
 from api.db.db_models import NewsSource, NewsTask, NewsContent, Knowledgebase, Document
 from api.db.services.common_service import CommonService
 from api.db.services.document_service import DocumentService

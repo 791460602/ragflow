@@ -35,7 +35,6 @@ from api.utils.file_utils import filename_type
 
 from common import settings
 from api.db.services.file_service import FileService
-from rag.utils.storage_factory import STORAGE_IMPL
 from common import settings
 
 
@@ -157,7 +156,7 @@ async def upload(tenant_id):
 
 @manager.route('/file2document/convert', methods=['POST'])  # noqa: F821
 @token_required
-def convert(tenant_id):
+def convert_files(tenant_id):
     """
     Convert files to documents and link them to datasets.
     ...
