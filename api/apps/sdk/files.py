@@ -31,14 +31,12 @@ from api.utils.api_utils import (
 from common.misc_utils import get_uuid
 from api.db import FileType
 from api.db.services import duplicate_name
-
-
-
-
 from api.utils.file_utils import filename_type
 
 from common import settings
 from api.db.services.file_service import FileService
+from rag.utils.storage_factory import STORAGE_IMPL
+from common import settings
 
 
 @manager.route('/file/upload', methods=['POST'])  # noqa: F821
