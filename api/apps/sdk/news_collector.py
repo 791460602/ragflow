@@ -89,6 +89,19 @@ class LibraryCrawler:
 
                     soup = BeautifulSoup(result.html, "html.parser")
                     
+                    # 兼容性处理：crawl4ai 的 `result.markdown` 有时是一个 dict（例如 MarkdownGenerationResult），
+                    # 而代码期望是字符串。这里统一提取优先的文本字段，保证后续处理不会触发 pydantic 校验错误。
+                    md_raw = getattr(result, "markdown", None)
+                    if md_raw is None:
+                        md_text = ""
+                    elif isinstance(md_raw, str):
+                        md_text = md_raw
+                    elif isinstance(md_raw, dict):
+                        # 尝试常见字段名
+                        md_text = md_raw.get("str") or md_raw.get("raw_markdown") or md_raw.get("markdown_with_citations") or md_raw.get("markdown") or json.dumps(md_raw, ensure_ascii=False)
+                    else:
+                        # 兜底为字符串化
+                        md_text = str(md_raw)
                     # ==================== 核心逻辑修正 START ====================
                     
                     # 步骤 1: 解析内容并计算哈希 (无论新旧)
@@ -180,7 +193,7 @@ def _sanitize_filename(name: str) -> str:
     return name[:100]
 
 
-async def _upload_to_knowledgebase(kb_id: str, tenant_id: str, file_path: str, article_data: dict, parse: bool = False):
+async def _upload_to_knowledgebase(kb_id: str, tenant_id: str, file_path: str, article_data: dict, parse: bool = False, document_id: str | None = None):
     """
     将抓取的新闻内容上传到指定知识库
     
@@ -216,24 +229,41 @@ async def _upload_to_knowledgebase(kb_id: str, tenant_id: str, file_path: str, a
         storage_location = f"{doc_id}/{doc_name}"
         settings.STORAGE_IMPL.put(kb_id, storage_location, file_content.encode('utf-8'))
         
-        # 创建文档记录到数据库
-        doc_data = {
-            "id": doc_id,
-            "kb_id": kb_id,
-            "name": doc_name,
-            "location": storage_location,  # 使用相对路径
-            "size": len(file_content),
-            "type": "json",
-            "suffix": "json",  # 添加文件后缀字段
-            "parser_id": kb.parser_id,
-            "parser_config": kb.parser_config,
-            "source_type": "news_crawler",
-            "created_by": tenant_id,
-            "tenant_id": tenant_id
-        }
-        
-        # DocumentService.insert 会自动增加知识库的文档数量
-        doc = DocumentService.insert(doc_data)
+        # 如果调用方提供了 document_id，则更新该 Document 的 location/size 等信息；
+        # 否则新建 Document（保持向后兼容）
+        if document_id:
+            try:
+                # 更新已有 Document
+                DocumentService.update_by_id(document_id, {
+                    "location": storage_location,
+                    "size": len(file_content),
+                    "name": doc_name,
+                    "suffix": "json",
+                    "type": "json",
+                    "source_type": "local",
+                })
+                e, doc = DocumentService.get_by_id(document_id)
+                if not e:
+                    doc = None
+            except Exception:
+                doc = None
+        else:
+            doc_data = {
+                "id": doc_id,
+                "kb_id": kb_id,
+                "name": doc_name,
+                "location": storage_location,  # 使用相对路径
+                "size": len(file_content),
+                "type": "json",
+                "suffix": "json",  # 添加文件后缀字段
+                "parser_id": kb.parser_id,
+                "parser_config": kb.parser_config,
+                "source_type": "local",
+                "created_by": tenant_id,
+                "tenant_id": tenant_id
+            }
+            # DocumentService.insert 会自动增加知识库的文档数量
+            doc = DocumentService.insert(doc_data)
         
         # 获取或创建知识库文件夹 
         kb_root_folder = FileService.get_kb_folder(tenant_id)
@@ -363,20 +393,29 @@ async def _async_crawl_from_post_worker(tenant_id: str, source_ids: list, depth:
                 print(f"[文件存储] 成功保存新页面: {output_file}")
                 
                 try:
-                    NewsContentService.create_content(
-                        tenant_id=tenant_id, task_id=instant_task_id, source_id=source_id, article_data=page_data
+                    # 如果有目标知识库，传入 kb_id 以便 create_content 可以创建并关联 Document
+                    news_content = NewsContentService.create_content(
+                        tenant_id=tenant_id, task_id=instant_task_id, source_id=source_id, article_data=page_data, kb_id=kb_id
                     )
                     print(f"[数据库同步] 成功将新内容 '{page_title}' 同步到数据库。")
                     total_new_articles_saved += 1
-                    
-                    # 如果指定了知识库，上传到知识库
+
+                    # 如果指定了知识库，上传到知识库（并传入可能已创建的 document_id，供更新）
                     if kb_id:
+                        document_id = None
+                        try:
+                            if isinstance(news_content, dict):
+                                document_id = news_content.get("document_id")
+                        except Exception:
+                            document_id = None
+
                         upload_success = await _upload_to_knowledgebase(
                             kb_id=kb_id,
                             tenant_id=tenant_id,
                             file_path=output_file,
                             article_data=page_data,
-                            parse=parse
+                            parse=parse,
+                            document_id=document_id,
                         )
                         if upload_success:
                             print(f"[知识库集成] 成功将内容上传到知识库 {kb_id}")

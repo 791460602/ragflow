@@ -323,7 +323,7 @@ class NewsContentService(CommonService):
     # =================================================================
     @classmethod
     @DB.connection_context()
-    def create_content(cls, tenant_id: str, task_id: str, source_id: str, article_data: Dict[str, Any], user_id: Optional[str] = None):
+    def create_content(cls, tenant_id: str, task_id: str, source_id: str, article_data: Dict[str, Any], user_id: Optional[str] = None, kb_id: Optional[str] = None):
         """
         创建一条新的新闻内容记录并存入数据库。
         重写后包含基于URL和内容哈希的去重检查，以及完整的错误处理。
@@ -363,6 +363,39 @@ class NewsContentService(CommonService):
                 print(f"[DB Service] 跳过：内容哈希值重复 (URL: {original_url})。")
                 return None
 
+            # 如果提供了目标知识库 ID，尝试创建一个最小化的 Document 记录
+            document_id = None
+            if kb_id:
+                try:
+                    kb_ok, kb = KnowledgebaseService.get_by_id(kb_id)
+                    if kb:
+                        doc_id = get_uuid()
+                        # 生成安全的文档名
+                        sanitized_title = re.sub(r'[^0-9a-zA-Z\u4e00-\u9fff_\-\.]', '_', article_data.get('title', 'untitled'))[:100]
+                        doc_name = f"{sanitized_title}.json"
+                        doc_data = {
+                            'id': doc_id,
+                            'kb_id': kb_id,
+                            'parser_id': kb.parser_id,
+                            'parser_config': kb.parser_config,
+                            'created_by': tenant_id,
+                            'type': 'json',
+                            'name': doc_name,
+                            'suffix': 'json',
+                            'location': '',
+                            'size': len(content_text),
+                            'source_type': 'local',
+                            'tenant_id': tenant_id,
+                        }
+                        try:
+                            doc = DocumentService.insert(doc_data)
+                            document_id = getattr(doc, 'id', None)
+                        except Exception:
+                            # 如果文档插入失败，不阻塞新闻内容的写入
+                            document_id = None
+                except Exception:
+                    document_id = None
+
             # 准备要插入数据库的数据
             content_data = {
                 'id': get_uuid(),
@@ -370,6 +403,7 @@ class NewsContentService(CommonService):
                 'user_id': user_id or tenant_id, # 如果user_id未提供，则使用tenant_id作为后备
                 'task_id': task_id,
                 'source_id': source_id,
+                'document_id': document_id,
                 'original_url': original_url,
                 'title': article_data.get("title", "无标题"),
                 'content': content_text,
