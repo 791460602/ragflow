@@ -19,8 +19,8 @@
 用于Web前端的登录态访问，与sdk版本保持相同的业务逻辑
 """
 
-from flask import request
-from flask_login import login_required, current_user
+from quart import request
+from api.apps import login_required, current_user
 from api.utils.api_utils import get_json_result, server_error_response, validate_request
 from api.db.services.news_service import NewsSourceService, NewsTaskService, NewsContentService
 from api.db.services.knowledgebase_service import KnowledgebaseService
@@ -519,15 +519,15 @@ def get_available_crawlers():
 
 @manager.route('/crawl_from_post', methods=['POST'])  # noqa: F821
 @login_required
-def crawl_from_post_web():
+async def crawl_from_post_web():
     """
     即时抓取接口（Web版）
     接收一个包含新闻源ID列表、控制参数和目标知识库ID的对象，
     并为它们启动一个即时的、数据库驱动的后台抓取任务。
     """
     try:
-        req_data = request.get_json()
-        
+        req_data = await request.get_json()
+
         source_ids = req_data.get("source_ids")
         depth = int(req_data.get("depth", 2))
         max_pages_per_source = int(req_data.get("max_pages_per_source", 50))
@@ -586,7 +586,7 @@ def list_datasets():
             joined_tenant_ids.append(current_user.id)
         
         # 获取知识库列表
-        kbs = KnowledgebaseService.get_list(
+        kbs, _ = KnowledgebaseService.get_list(
             joined_tenant_ids,
             current_user.id,
             page_number=1,
@@ -596,10 +596,10 @@ def list_datasets():
             id=None,
             name=None,
         )
-        
+
         # 转换为前端需要的格式
         datasets = [{"id": kb["id"], "name": kb["name"]} for kb in kbs]
-        
+
         return get_json_result(data=datasets)
         
     except Exception as e:

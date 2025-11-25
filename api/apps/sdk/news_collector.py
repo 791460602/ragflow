@@ -99,11 +99,11 @@ class LibraryCrawler:
                         # (精确模式解析逻辑不变)
                         print("[LibraryCrawler] 模式: 精确抓取 (使用选择器)")
                         content_tag = soup.select_one(selectors.get("content_selector"))
-                        content_text = content_tag.get_text(strip=True) if content_tag else result.markdown
+                        content_text = content_tag.get_text(strip=True) if content_tag else md_text
                     else:
                         # (自动模式解析逻辑不变)
                         print("[LibraryCrawler] 模式: 自动抓取 (无选择器)")
-                        content_text = result.markdown
+                        content_text = md_text
 
                     if not content_text or not content_text.strip():
                         print(f"[LibraryCrawler] 警告: 页面内容为空，跳过内容处理，但仍会查找链接。")
@@ -128,8 +128,8 @@ class LibraryCrawler:
                                 time_tag = soup.select_one(selectors.get("publication_time_selector"))
                                 time_text = time_tag.get_text(strip=True) if time_tag else None
                             else:
-                                if result.markdown:
-                                    for line in result.markdown.split("\n"):
+                                if md_text:
+                                    for line in md_text.split("\n"):
                                         cleaned_line = line.strip("#*-> ").strip()
                                         if cleaned_line:
                                             title_text = cleaned_line
