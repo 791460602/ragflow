@@ -20,7 +20,7 @@
 采用分离架构设计，便于独立开发和测试
 """
 
-from flask import request
+from quart import request
 from api.utils.api_utils import get_json_result, server_error_response, token_required
 from api.db.services.news_service import NewsSourceService, NewsTaskService, NewsContentService
 from api.db.services.knowledgebase_service import KnowledgebaseService
@@ -28,11 +28,9 @@ from api.db.services.document_service import DocumentService
 from api.db.services.file_service import FileService
 from common import settings
 from common.misc_utils import get_uuid
-from common.file_utils import get_project_base_directory
 from datetime import datetime, timedelta
 import os
 import tempfile
-from playhouse.shortcuts import model_to_dict
 import traceback
 
 # --- 新增的导入，用于实现高级抓取功能 ---
@@ -45,7 +43,7 @@ import json  # 新增: 用于写入JSON文件
 import hashlib  # 新增: 用于哈希去重
 import re  # 新增: 用于清理文件名
 import aiofiles  # 确保在文件顶部导入
-from flask import Blueprint
+from quart import Blueprint
 
 
 # =================================================================================
@@ -55,23 +53,43 @@ class LibraryCrawler:
     """
     一个封装了 crawl4ai 库调用逻辑的内部爬虫类。
     """
-    async def recursive_crawl(self, start_url: str, depth: int, max_pages: int, 
-                              persistent_hashes: set, selectors: dict = None):
+
+    async def recursive_crawl(self, start_url: str, depth: int, max_pages: int, persistent_hashes: set, selectors: dict = None):
         """
         最终修正：
         1. 无论当前页面内容是否重复，总是解析页面上的链接，以发现新内容。
         2. 只有当页面内容本身是全新的，才将其添加到最终的结果列表。
         """
-        newly_crawled_data = [] # 只存储本次抓取到的新数据
+        newly_crawled_data = []  # 只存储本次抓取到的新数据
         async with AsyncWebCrawler() as crawler:
             visited_urls = set()
             urls_to_visit = [(start_url, 0)]
 
             IGNORED_EXTENSIONS = (
-                ".doc", ".docx", ".wps", ".xls", ".xlsx", ".ppt", ".pptx",
-                ".zip", ".rar", ".7z", ".gz", ".tar", ".jpg", ".jpeg",
-                ".png", ".gif", ".bmp", ".svg", ".mp3", ".mp4", ".avi",
-                ".mov", ".wmv", ".pdf"
+                ".doc",
+                ".docx",
+                ".wps",
+                ".xls",
+                ".xlsx",
+                ".ppt",
+                ".pptx",
+                ".zip",
+                ".rar",
+                ".7z",
+                ".gz",
+                ".tar",
+                ".jpg",
+                ".jpeg",
+                ".png",
+                ".gif",
+                ".bmp",
+                ".svg",
+                ".mp3",
+                ".mp4",
+                ".avi",
+                ".mov",
+                ".wmv",
+                ".pdf",
             )
 
             while urls_to_visit and len(newly_crawled_data) < max_pages:
@@ -88,13 +106,13 @@ class LibraryCrawler:
                         continue
 
                     soup = BeautifulSoup(result.html, "html.parser")
-                    
+
                     # ==================== 核心逻辑修正 START ====================
-                    
+
                     # 步骤 1: 解析内容并计算哈希 (无论新旧)
                     content_text = ""
                     title_text = ""
-                    
+
                     if selectors and selectors.get("link_selector"):
                         # (精确模式解析逻辑不变)
                         print("[LibraryCrawler] 模式: 精确抓取 (使用选择器)")
@@ -106,10 +124,10 @@ class LibraryCrawler:
                         content_text = result.markdown
 
                     if not content_text or not content_text.strip():
-                        print(f"[LibraryCrawler] 警告: 页面内容为空，跳过内容处理，但仍会查找链接。")
+                        print("[LibraryCrawler] 警告: 页面内容为空，跳过内容处理，但仍会查找链接。")
                     else:
                         content_hash = hashlib.sha256(content_text.encode("utf-8")).hexdigest()
-                        
+
                         # 步骤 2: 判断内容是否为全新
                         if content_hash in persistent_hashes:
                             # 如果是重复内容，只打印信息，不执行 continue
@@ -136,13 +154,16 @@ class LibraryCrawler:
                                             break
                                 if not title_text:
                                     title_text = soup.title.string if soup.title else f"Untitled_{get_uuid()}"
-                            
+
                             print(f"[LibraryCrawler] 发现新内容: {title_text}")
                             page_data = {
-                                "url": current_url, "title": title_text, "content": content_text,
-                                "author": author_text, "publication_time": time_text,
+                                "url": current_url,
+                                "title": title_text,
+                                "content": content_text,
+                                "author": author_text,
+                                "publication_time": time_text,
                                 "crawl_timestamp": datetime.now().isoformat(),
-                                "content_hash": content_hash
+                                "content_hash": content_hash,
                             }
                             newly_crawled_data.append(page_data)
                             persistent_hashes.add(content_hash)
@@ -183,7 +204,7 @@ def _sanitize_filename(name: str) -> str:
 async def _upload_to_knowledgebase(kb_id: str, tenant_id: str, file_path: str, article_data: dict, parse: bool = False):
     """
     将抓取的新闻内容上传到指定知识库
-    
+
     参数:
         kb_id: 知识库ID
         tenant_id: 租户ID
@@ -196,26 +217,26 @@ async def _upload_to_knowledgebase(kb_id: str, tenant_id: str, file_path: str, a
         if not kb:
             print(f"[知识库上传] 错误: 知识库 {kb_id} 不存在")
             return False
-        
+
         # 读取文件内容
         async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
             file_content = await f.read()
-        
+
         # 准备文档数据
         article_title = article_data.get("title", "Untitled")
-        article_url = article_data.get("url", "")
-        
+        # article_url = article_data.get("url", "")
+
         # 创建文档记录
         doc_id = get_uuid()
         # 清理文件名，移除不支持的特殊字符
         sanitized_title = _sanitize_filename(article_title)
         doc_name = f"{sanitized_title}.json"
-        
+
         # 上传文件到存储
         # location 应该是相对于 bucket 的路径，与 STORAGE_IMPL.put 的第二个参数一致
         storage_location = f"{doc_id}/{doc_name}"
-        settings.STORAGE_IMPL.put(kb_id, storage_location, file_content.encode('utf-8'))
-        
+        settings.STORAGE_IMPL.put(kb_id, storage_location, file_content.encode("utf-8"))
+
         # 创建文档记录到数据库
         doc_data = {
             "id": doc_id,
@@ -229,13 +250,13 @@ async def _upload_to_knowledgebase(kb_id: str, tenant_id: str, file_path: str, a
             "parser_config": kb.parser_config,
             "source_type": "news_crawler",
             "created_by": tenant_id,
-            "tenant_id": tenant_id
+            "tenant_id": tenant_id,
         }
-        
+
         # DocumentService.insert 会自动增加知识库的文档数量
         doc = DocumentService.insert(doc_data)
-        
-        # 获取或创建知识库文件夹 
+
+        # 获取或创建知识库文件夹
         kb_root_folder = FileService.get_kb_folder(tenant_id)
         if kb_root_folder:
             kb_folder = FileService.new_a_file_from_kb(
@@ -246,17 +267,16 @@ async def _upload_to_knowledgebase(kb_id: str, tenant_id: str, file_path: str, a
             if kb_folder:
                 # 将文档添加到文件系统，以便在前端显示
                 FileService.add_file_from_kb(doc.to_dict(), kb_folder["id"], tenant_id)
-        
-        
+
         print(f"[知识库上传] 成功上传文档到知识库 {kb_id}: {doc_name}")
         if parse:
             # 解析文档
             from api.db.services.task_service import queue_tasks
             from api.db.services.file2document_service import File2DocumentService
-            
+
             # 获取存储地址信息
             bucket, name = File2DocumentService.get_storage_address(doc_id=doc_id)
-            
+
             # 准备文档信息用于解析
             doc_info = {
                 "id": doc_id,
@@ -267,15 +287,15 @@ async def _upload_to_knowledgebase(kb_id: str, tenant_id: str, file_path: str, a
                 "parser_id": kb.parser_id,
                 "parser_config": kb.parser_config,
                 "tenant_id": tenant_id,
-                "size": len(file_content)
+                "size": len(file_content),
             }
-            
+
             # 将解析任务加入队列
             queue_tasks(doc_info, bucket, name, 0)
             print(f"[知识库上传] 已将文档 {doc_name} 加入解析队列")
-        
+
         return True
-        
+
     except Exception as e:
         print(f"[知识库上传] 上传失败: {e}")
         traceback.print_exc()
@@ -292,7 +312,7 @@ async def _async_crawl_from_post_worker(tenant_id: str, source_ids: list, depth:
     """
     kb_info = f", 目标知识库: {kb_id}" if kb_id else ""
     print(f"[后台任务] 开始处理 {len(source_ids)} 个新闻源... (深度: {depth}, 每源最大页数: {max_pages}{kb_info})")
-    
+
     try:
         content_hashes = NewsContentService.get_all_content_hashes(tenant_id)
         print(f"[后台任务] 成功从数据库加载 {len(content_hashes)} 个已存在的历史内容哈希。")
@@ -319,34 +339,28 @@ async def _async_crawl_from_post_worker(tenant_id: str, source_ids: list, depth:
         source_id = source.get("id")
         source_name = source.get("name")
         start_url = source.get("url")
-        
+
         print(f"\n[后台任务] 正在处理第 {i + 1}/{len(sources_from_db)} 个源: {source_name} ({start_url})")
 
         if not start_url:
             continue
-        
+
         selectors = source.get("fetch_config") if source.get("remark") == "1" else None
 
         try:
-            new_articles = await crawler.recursive_crawl(
-                start_url=start_url, 
-                depth=depth, 
-                max_pages=max_pages, 
-                persistent_hashes=content_hashes,
-                selectors=selectors
-            )
-            
+            new_articles = await crawler.recursive_crawl(start_url=start_url, depth=depth, max_pages=max_pages, persistent_hashes=content_hashes, selectors=selectors)
+
             if not new_articles:
                 print(f"[后台任务] 源 '{source_name}' 未发现任何新内容。")
                 continue
-            
+
             print(f"[后台任务] 源 '{source_name}' 发现 {len(new_articles)} 篇新内容，开始处理...")
 
             for page_data in new_articles:
                 content_hash = page_data.get("content_hash")
 
                 page_title = _sanitize_filename(page_data.get("title", "untitled"))
-                timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+                timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
                 filename = f"{page_title}_{timestamp}_{content_hash[:16]}.json"
 
                 base_dir = "crawl4ai_data"
@@ -355,34 +369,26 @@ async def _async_crawl_from_post_worker(tenant_id: str, source_ids: list, depth:
                 output_file = os.path.join(output_dir, filename)
 
                 os.makedirs(output_dir, exist_ok=True)
-                
+
                 # ==================== 核心修正：afiles -> aiofiles ====================
                 async with aiofiles.open(output_file, "w", encoding="utf-8") as f:
                     await f.write(json.dumps(page_data, ensure_ascii=False, indent=2))
                 # ===================================================================
                 print(f"[文件存储] 成功保存新页面: {output_file}")
-                
+
                 try:
-                    NewsContentService.create_content(
-                        tenant_id=tenant_id, task_id=instant_task_id, source_id=source_id, article_data=page_data
-                    )
+                    NewsContentService.create_content(tenant_id=tenant_id, task_id=instant_task_id, source_id=source_id, article_data=page_data)
                     print(f"[数据库同步] 成功将新内容 '{page_title}' 同步到数据库。")
                     total_new_articles_saved += 1
-                    
+
                     # 如果指定了知识库，上传到知识库
                     if kb_id:
-                        upload_success = await _upload_to_knowledgebase(
-                            kb_id=kb_id,
-                            tenant_id=tenant_id,
-                            file_path=output_file,
-                            article_data=page_data,
-                            parse=parse
-                        )
+                        upload_success = await _upload_to_knowledgebase(kb_id=kb_id, tenant_id=tenant_id, file_path=output_file, article_data=page_data, parse=parse)
                         if upload_success:
                             print(f"[知识库集成] 成功将内容上传到知识库 {kb_id}")
                         else:
-                            print(f"[知识库集成] 上传到知识库失败，但本地文件和数据库已保存")
-                    
+                            print("[知识库集成] 上传到知识库失败，但本地文件和数据库已保存")
+
                 except Exception as e:
                     print(f"[数据库同步] 警告: 写入数据库失败: {e}")
 
@@ -391,6 +397,7 @@ async def _async_crawl_from_post_worker(tenant_id: str, source_ids: list, depth:
             traceback.print_exc()
 
     print(f"\n[后台任务] 所有新闻源处理完毕。本次任务共发现并存储了 {total_new_articles_saved} 篇全新内容。")
+
 
 def _background_crawl_from_post_wrapper(tenant_id: str, source_ids: list, depth: int, max_pages: int, kb_id: str = None, parse: bool = False):
     """同步的包装函数，在线程中启动asyncio事件循环。"""
@@ -868,18 +875,18 @@ def get_news_source(tenant_id, source_id):
     """(已修正) 获取单个新闻源详情"""
     try:
         _, source_model = NewsSourceService.get_by_id(source_id)
-        
+
         # FIX: 先判断对象是否存在，再转换为字典进行后续操作
         if not source_model:
             return get_json_result(code=404, message="新闻源不存在")
-        
+
         source_dict = NewsSourceService.to_dict(source_model)
 
         if source_dict.get("tenant_id") != tenant_id:
             return get_json_result(code=404, message="新闻源不存在或无权限访问")
-        
+
         return get_json_result(data={"source": source_dict})
-    
+
     except Exception as e:
         return server_error_response(e)
 
@@ -912,6 +919,7 @@ def delete_news_source(tenant_id, source_id):
         return get_json_result(code=404, message=str(e))
     except Exception as e:
         return server_error_response(e)
+
 
 # ========== 任务管理 CRUD ==========
 
@@ -1133,12 +1141,12 @@ def get_news_statistics(tenant_id):
 
 @manager.route("/news_collector/crawl_from_post", methods=["POST"])
 @token_required
-def crawl_from_post_api(tenant_id):
+async def crawl_from_post_api(tenant_id):
     """
     (已重构) 接收一个包含新闻源ID列表和控制参数的对象，
     并为它们启动一个即时的、数据库驱动的后台抓取任务。
     """
-    req_data = request.get_json()
+    req_data = await request.get_json()
 
     source_ids = req_data.get("source_ids")
     depth = int(req_data.get("depth", 2))
@@ -1157,10 +1165,12 @@ def crawl_from_post_api(tenant_id):
     except Exception as e:
         traceback.print_exc()
         return server_error_response(e)
-    
+
+
 # =================================================================================
 # 新增的哈希管理 API
 # =================================================================================
+
 
 @manager.route("/news_collector/contents/hashes", methods=["GET"])
 @token_required
@@ -1173,9 +1183,7 @@ def list_content_hashes(tenant_id):
         page = int(request.args.get("page", 1))
         page_size = int(request.args.get("page_size", 20))
 
-        records, total = NewsContentService.get_hashes_paginated(
-            tenant_id=tenant_id, page=page, page_size=page_size
-        )
+        records, total = NewsContentService.get_hashes_paginated(tenant_id=tenant_id, page=page, page_size=page_size)
 
         return get_json_result(data={"records": records, "total": total, "page": page, "page_size": page_size})
 
