@@ -503,7 +503,7 @@ def list_datasets():
             joined_tenant_ids.append(current_user.id)
 
         # 获取知识库列表
-        kbs = KnowledgebaseService.get_list(
+        kbs, _ = KnowledgebaseService.get_list(
             joined_tenant_ids,
             current_user.id,
             page_number=1,
