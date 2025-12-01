@@ -153,6 +153,7 @@ dependencies = [
     "pyobvector==0.2.18",
     "crawl4ai[all]",
     "beautifulsoup4",
+    "playwright>=1.56.0",
 ]
 
 [project.optional-dependencies]
