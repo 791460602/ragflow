@@ -30,6 +30,7 @@ from api.db.services.knowledgebase_service import KnowledgebaseService
 from api.db.services.document_service import DocumentService
 from api.db.services.file_service import FileService
 from common.misc_utils import get_uuid
+from common import settings
 from datetime import datetime
 import os
 import traceback
@@ -257,10 +258,17 @@ class ChineseContentScorer:
 
 
 # =================================================================================
-# TopicCrawler 类 - 主题搜索爬虫（关键词相关性爬取）- 改进版
+# TopicCrawler 类 - 修复版
 # =================================================================================
 class TopicCrawler:
-    """基于内容评分的主题搜索爬虫"""
+    """基于内容评分的主题搜索爬虫 - 修复版
+
+    修复内容：
+    1. 每个源使用独立的浏览器配置，避免跨源的上下文冲突
+    2. 改进的资源管理，确保爬虫正确关闭
+    3. 更强的异常处理，忽略已知的crawl4ai库问题
+    4. 源之间添加延迟，确保资源完全释放
+    """
 
     def __init__(self):
         self.content_scorer = None
@@ -272,7 +280,7 @@ class TopicCrawler:
         if persistent_hashes is None:
             persistent_hashes = set()
 
-        # 【新增】初始化内容评分器
+        # 初始化内容评分器
         self.content_scorer = ChineseContentScorer(keywords=keywords)
 
         all_crawled_data = []
@@ -283,8 +291,7 @@ class TopicCrawler:
         print(f"[TopicCrawler] 每源最大收集: {max_pages_per_source}, 每源最大爬取: {max_crawl_pages_per_source}")
         print(f"[TopicCrawler] 内容评分阈值: {score_threshold}")
 
-        # 【新增】创建共享浏览器配置
-        browser_config = BrowserConfig(headless=True, verbose=False, extra_args=["--disable-gpu", "--disable-dev-shm-usage", "--no-sandbox"])
+        # 【修复】不再在这里创建共享的 browser_config
 
         for i, source in enumerate(sources):
             source_id = source.get("id")
@@ -297,6 +304,18 @@ class TopicCrawler:
             print(f"\n[TopicCrawler] === 处理源 {i + 1}/{len(sources)}: {source_name} ===")
 
             try:
+                # 【关键修复】每个源创建独立的浏览器配置实例
+                browser_config = BrowserConfig(
+                    headless=True,
+                    verbose=False,
+                    extra_args=[
+                        "--disable-gpu",
+                        "--disable-dev-shm-usage",
+                        "--no-sandbox",
+                        "--disable-extensions",
+                    ],
+                )
+
                 source_articles = await self._crawl_single_source(
                     start_url=start_url,
                     source_id=source_id,
@@ -310,9 +329,15 @@ class TopicCrawler:
                 )
                 all_crawled_data.extend(source_articles)
                 print(f"[TopicCrawler] 源 '{source_name}' 发现 {len(source_articles)} 篇相关内容")
+
             except Exception as e:
                 print(f"[TopicCrawler] 处理源 '{source_name}' 时发生错误: {e}")
                 traceback.print_exc()
+
+            # 【关键修复】源之间添加延迟，确保浏览器资源完全释放
+            if i < len(sources) - 1:
+                print("[TopicCrawler] 等待资源释放...")
+                await asyncio.sleep(2)
 
         print(f"\n[TopicCrawler] 完成，共发现 {len(all_crawled_data)} 篇相关内容")
         return all_crawled_data
@@ -320,30 +345,44 @@ class TopicCrawler:
     async def _crawl_single_source(
         self, start_url: str, source_id: str, keywords: list, max_depth: int, max_pages: int, max_crawl_pages: int, score_threshold: float, persistent_hashes: set, browser_config: BrowserConfig
     ):
-        """爬取单个新闻源 - 使用内容评分"""
+        """爬取单个新闻源 - 使用内容评分（修复版）
+
+        改进点：
+        1. 使用try-finally确保爬虫正确关闭
+        2. 在收集到足够内容后主动退出迭代
+        3. 捕获并处理已知的crawl4ai库错误
+        """
         newly_crawled_data = []
         visited_urls = set()
         pages_processed = 0
+        should_stop = False
 
-        # 使用用户指定的爬取页面上限
-        crawl_pages = max_crawl_pages
+        print(f"[TopicCrawler] 目标: {max_pages} 篇相关内容, 最大爬取: {max_crawl_pages} 页")
 
-        print(f"[TopicCrawler] 目标: {max_pages} 篇相关内容, 最大爬取: {crawl_pages} 页")
-
-        # 【修改】使用 BFS 策略替代 BestFirst（不使用 URL 评分）
+        # 使用 BFS 策略
         config = CrawlerRunConfig(
-            deep_crawl_strategy=BFSDeepCrawlStrategy(max_depth=max_depth, include_external=False, max_pages=crawl_pages, filter_chain=FilterChain([ContentTypeFilter(allowed_types=["text/html"])])),
+            deep_crawl_strategy=BFSDeepCrawlStrategy(
+                max_depth=max_depth, include_external=False, max_pages=max_crawl_pages, filter_chain=FilterChain([ContentTypeFilter(allowed_types=["text/html"])])
+            ),
             scraping_strategy=LXMLWebScrapingStrategy(),
             stream=True,
             verbose=True,
         )
 
+        crawler = None
         try:
-            async with AsyncWebCrawler(config=browser_config) as crawler:
+            # 【修复】手动管理爬虫生命周期
+            crawler = AsyncWebCrawler(config=browser_config)
+            await crawler.__aenter__()
+
+            try:
                 async for result in await crawler.arun(start_url, config=config):
-                    if len(newly_crawled_data) >= max_pages:
-                        print(f"[TopicCrawler] ✓ 已收集到 {max_pages} 篇相关内容")
-                        break
+                    # 检查是否应该停止
+                    if should_stop or len(newly_crawled_data) >= max_pages:
+                        if not should_stop:
+                            print(f"[TopicCrawler] ✓ 已收集到 {max_pages} 篇相关内容，停止爬取")
+                            should_stop = True
+                        break  # 【关键】直接退出循环
 
                     pages_processed += 1
 
@@ -362,10 +401,10 @@ class TopicCrawler:
                     if not content_text or len(content_text.strip()) < 100:
                         continue
 
-                    # 【核心改进】使用内容评分
+                    # 使用内容评分
                     content_score = self.content_scorer.score(content_text, title)
                     matched_keywords = self.content_scorer.get_matched_keywords(content_text + " " + title)
-                    depth = result.metadata.get("depth", 0)
+                    depth = result.metadata.get("depth", 0) if result.metadata else 0
 
                     print(f"[TopicCrawler] 深度: {depth} | 评分: {content_score:.2f} | 匹配: {matched_keywords[:3]} | {url[:60]}...")
 
@@ -375,6 +414,7 @@ class TopicCrawler:
                     # 去重
                     content_hash = hashlib.sha256(content_text.encode("utf-8")).hexdigest()
                     if content_hash in persistent_hashes:
+                        print(f"[TopicCrawler] 跳过重复内容: {title[:30]}...")
                         continue
                     persistent_hashes.add(content_hash)
 
@@ -393,9 +433,39 @@ class TopicCrawler:
                     newly_crawled_data.append(article_data)
                     print(f"[TopicCrawler] ✓ 收集: {title[:40]}... (评分: {content_score:.2f})")
 
+            except GeneratorExit:
+                # 【修复】正常处理生成器退出
+                print("[TopicCrawler] 爬取迭代器已关闭")
+            except StopAsyncIteration:
+                # 正常结束
+                pass
+            except Exception as iter_error:
+                # 【修复】忽略已知的crawl4ai库错误
+                error_str = str(iter_error)
+                if "was created in a different Context" in error_str:
+                    print("[TopicCrawler] 忽略ContextVar错误（crawl4ai已知问题）")
+                elif "Target page, context or browser has been closed" in error_str:
+                    print("[TopicCrawler] 浏览器已关闭，停止当前源爬取")
+                elif "net::ERR_ABORTED" in error_str:
+                    print("[TopicCrawler] 页面请求被中断")
+                else:
+                    print(f"[TopicCrawler] 迭代错误: {iter_error}")
+
         except Exception as e:
-            print(f"[TopicCrawler] 错误: {e}")
+            print(f"[TopicCrawler] 源爬取错误: {e}")
             traceback.print_exc()
+
+        finally:
+            # 【关键修复】确保爬虫资源被正确释放
+            if crawler:
+                try:
+                    await crawler.__aexit__(None, None, None)
+                except Exception:
+                    # 忽略关闭时的错误（这些通常是无害的）
+                    pass
+
+            # 额外等待，确保浏览器进程完全退出
+            await asyncio.sleep(0.5)
 
         print(f"[TopicCrawler] 单源完成: 处理 {pages_processed} 页, 收集 {len(newly_crawled_data)} 篇")
         return newly_crawled_data
@@ -423,10 +493,8 @@ def _sanitize_filename(name: str) -> str:
 
 
 async def _upload_to_knowledgebase(kb_id: str, tenant_id: str, file_path: str, article_data: dict, parse: bool = False, document_id: str = None) -> bool:
-    """上传内容到知识库"""
+    """上传内容到知识库 (修复版)"""
     try:
-        from rag.utils.storage_factory import STORAGE_IMPL as storage
-
         _, kb = KnowledgebaseService.get_by_id(kb_id)
         if not kb:
             print(f"[知识库上传] 知识库 {kb_id} 不存在")
@@ -435,30 +503,78 @@ async def _upload_to_knowledgebase(kb_id: str, tenant_id: str, file_path: str, a
         doc_name = os.path.basename(file_path)
         doc_id = document_id if document_id else get_uuid()
 
-        async with aiofiles.open(file_path, "rb") as f:
+        # 读取文件内容(文本模式)
+        async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
             file_content = await f.read()
 
-        storage_location = f"{kb_id}/{doc_name}"
-        storage.put(kb_id, doc_name, file_content)
+        # 准备文档数据
+        article_title = article_data.get("title", "Untitled")
+        sanitized_title = _sanitize_filename(article_title)
+        doc_name = f"{sanitized_title}.json"
 
-        doc = DocumentService.insert(
-            {
+        # location 应该是相对于 bucket 的路径
+        doc_id = document_id if document_id else get_uuid()
+        storage_location = f"{doc_id}/{doc_name}"
+
+        # 使用 settings.STORAGE_IMPL 进行存储
+        settings.STORAGE_IMPL.put(kb_id, storage_location, file_content.encode("utf-8"))
+
+        # 如果调用方提供了 document_id,则尝试更新该 Document;
+        # 否则新建 Document(保持向后兼容)
+        if document_id:
+            try:
+                # 更新已有 Document
+                DocumentService.update_by_id(
+                    document_id,
+                    {
+                        "location": storage_location,
+                        "size": len(file_content),
+                        "name": doc_name,
+                        "suffix": "json",
+                        "type": "json",
+                        "source_type": "local",
+                    },
+                )
+                e, doc = DocumentService.get_by_id(document_id)
+                if not e:
+                    doc = None
+                else:
+                    print(f"[知识库上传] 更新已存在的文档: {document_id}")
+            except Exception as update_err:
+                print(f"[知识库上传] 更新文档失败,尝试创建新文档: {update_err}")
+                doc = None
+        else:
+            doc = None
+
+        # 如果没有成功更新现有文档,则创建新文档
+        if doc is None:
+            doc_data = {
                 "id": doc_id,
                 "kb_id": kb_id,
-                "parser_id": kb.parser_id,
-                "parser_config": kb.parser_config,
-                "created_by": tenant_id,
-                "type": "json",
                 "name": doc_name,
                 "location": storage_location,
                 "size": len(file_content),
-                "thumbnail": None,
+                "type": "json",
+                "suffix": "json",
+                "parser_id": kb.parser_id,
+                "parser_config": kb.parser_config,
+                "source_type": "local",
+                "created_by": tenant_id,
+                "tenant_id": tenant_id,
             }
-        )
+            doc = DocumentService.insert(doc_data)
 
-        kb_folder = FileService.get_kb_folder(tenant_id, kb_id)
-        if kb_folder:
-            FileService.add_file_from_kb(doc.to_dict(), kb_folder["id"], tenant_id)
+        # 获取知识库文件夹（只需要 tenant_id 一个参数）
+        kb_root_folder = FileService.get_kb_folder(tenant_id)
+        if kb_root_folder:
+            # 为知识库创建子文件夹
+            kb_folder = FileService.new_a_file_from_kb(
+                tenant_id,
+                kb.name,
+                kb_root_folder["id"],
+            )
+            if kb_folder:
+                FileService.add_file_from_kb(doc.to_dict(), kb_folder["id"], tenant_id)
 
         print(f"[知识库上传] 成功上传文档到知识库 {kb_id}: {doc_name}")
 

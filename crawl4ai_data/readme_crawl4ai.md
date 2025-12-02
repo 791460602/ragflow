@@ -160,6 +160,7 @@
         "max_pages_per_source": 30,
         "max_crawl_pages_per_source": 100,
         "score_threshold": 0.3,
+        "kb_id": "86b738d0cf5611f0abe9e33f8c138980",
         "parse": false
     }'
     ```
