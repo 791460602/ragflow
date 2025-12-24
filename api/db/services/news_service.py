@@ -371,7 +371,23 @@ class NewsContentService(CommonService):
                     if kb:
                         doc_id = get_uuid()
                         # 生成安全的文档名
-                        sanitized_title = re.sub(r'[^0-9a-zA-Z\u4e00-\u9fff_\-\.]', '_', article_data.get('title', 'untitled'))[:100]
+                        title = (article_data.get("title") or "").strip()
+                        if not title:
+                            try:
+                                u = (article_data.get("url") or "").strip()
+                                if u:
+                                    from urllib.parse import urlparse
+
+                                    parsed = urlparse(u)
+                                    last_seg = (parsed.path or "").rstrip("/").split("/")[-1]
+                                    title = last_seg or parsed.netloc
+                            except Exception:
+                                title = ""
+                        if not title:
+                            title = "untitled"
+                        sanitized_title = re.sub(r"[^0-9a-zA-Z\u4e00-\u9fff_\-\.]", "_", title)[:100]
+                        if not sanitized_title.strip("_."):
+                            sanitized_title = f"untitled_{datetime.now().strftime('%Y%m%d%H%M%S')}"
                         doc_name = f"{sanitized_title}.json"
                         doc_data = {
                             'id': doc_id,

@@ -1,19 +1,44 @@
-import React, { useState, useEffect } from 'react';
-import { Button, Card, Empty, message, Spin, Space, Select, Input, Alert, Tabs, Modal, Popconfirm, Form, InputNumber, Tooltip, Switch } from 'antd';
-import { PlusOutlined, SyncOutlined, KeyOutlined, EditOutlined, DeleteOutlined, QuestionCircleOutlined } from '@ant-design/icons';
+import {
+  DeleteOutlined,
+  EditOutlined,
+  KeyOutlined,
+  PlusOutlined,
+  QuestionCircleOutlined,
+  SyncOutlined,
+} from '@ant-design/icons';
+import {
+  Alert,
+  Button,
+  Card,
+  Empty,
+  Form,
+  Input,
+  InputNumber,
+  Modal,
+  Popconfirm,
+  Select,
+  Space,
+  Spin,
+  Switch,
+  Tabs,
+  Tooltip,
+  message,
+} from 'antd';
+import React, { useEffect, useState } from 'react';
 // 恢复表单组件
 import NewsCollectorForm from './NewsCollectorForm';
 // 恢复API调用
-import { 
-  getDatasets, 
-  getNewsSources, 
-  createNewsSource, 
-  updateNewsSource, 
-  deleteNewsSource,
-  crawlFromPost,
+import {
   checkApiHealth,
+  crawlFromPost,
+  createNewsSource,
+  deleteNewsSource,
+  getAuthType,
+  getDatasets,
+  getNewsSources,
   hasAuthToken,
-  getAuthType
+  topicSearchCrawl,
+  updateNewsSource,
 } from './NewsCollectorService';
 
 const { TabPane } = Tabs;
@@ -47,17 +72,24 @@ const NewsCollector: React.FC = () => {
   const [formModalVisible, setFormModalVisible] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
-  const [pagination, setPagination] = useState({ page: 1, pageSize: 10, total: 0 });
-  const [apiStatus, setApiStatus] = useState<'checking' | 'ok' | 'error'>('checking');
-  
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: 10,
+    total: 0,
+  });
+  const [apiStatus, setApiStatus] = useState<'checking' | 'ok' | 'error'>(
+    'checking',
+  );
+
   const [apiKey, setApiKey] = useState(getApiKey());
   const [apiKeyModalVisible, setApiKeyModalVisible] = useState(false);
   const [tempApiKey, setTempApiKey] = useState('');
-  
+
   // 抓取配置模态框状态
   const [crawlConfigModalVisible, setCrawlConfigModalVisible] = useState(false);
   const [crawlConfigForm] = Form.useForm();
-  
+  const [crawlMode, setCrawlMode] = useState<'instant' | 'topic'>('instant'); // 抓取模式：即时抓取或主题搜索
+
   // 获取认证头（优先使用登录态）
   const getAuthorizationHeader = () => {
     const authorization = localStorage.getItem('Authorization');
@@ -67,7 +99,7 @@ const NewsCollector: React.FC = () => {
     if (storedApiKey) return `Bearer ${storedApiKey}`;
     return '';
   };
-  
+
   // API Key 保存函数
   const saveApiKey = (newApiKey: string) => {
     try {
@@ -79,63 +111,66 @@ const NewsCollector: React.FC = () => {
       message.error('保存API Key失败');
     }
   };
-  
+
   // 打开API Key配置弹窗
   const openApiKeyModal = () => {
     setTempApiKey(apiKey);
     setApiKeyModalVisible(true);
   };
-  
+
   // 关闭API Key配置弹窗
   const closeApiKeyModal = () => {
     setApiKeyModalVisible(false);
     setTempApiKey('');
   };
-  
+
   // 确认保存API Key
   const handleSaveApiKey = async () => {
     if (!tempApiKey.trim()) {
       message.warning('请输入有效的API Key');
       return;
     }
-    
+
     const cleanApiKey = tempApiKey.trim();
     console.log('=== 保存API Key ===');
     console.log('原始长度:', tempApiKey.length);
     console.log('清理后长度:', cleanApiKey.length);
-    console.log('格式检查:', /^[a-zA-Z0-9\-_]{20,}$/.test(cleanApiKey) ? '正常' : '异常');
-    
+    console.log(
+      '格式检查:',
+      /^[a-zA-Z0-9\-_]{20,}$/.test(cleanApiKey) ? '正常' : '异常',
+    );
+
     // 保存API Key
     saveApiKey(cleanApiKey);
-    
+
     // 关闭弹窗
     closeApiKeyModal();
-    
+
     // 等待稍微后测试连接
     setTimeout(() => {
       console.log('开始测试API连接...');
       checkApiStatus();
     }, 500);
   };
-  
+
   // 数据加载函数 - 添加更多错误防护
   const loadDatasets = async () => {
     try {
       console.log('开始加载知识库列表...');
       const res = await getDatasets(apiKey);
-      
+
       console.log('知识库API完整响应:', res);
       console.log('响应数据结构:', res?.data);
-      
+
       // 安全检查响应数据 - 兼容多种响应格式
       if (res && res.data) {
         let datasets = [];
-        
+
         // 格式1: { code: 0, data: [...] } - 新闻收集器专用API格式
         if (Array.isArray(res.data.data)) {
           datasets = res.data.data;
-        } 
-        // 格式2: { code: 0, data: {...} } - SDK API格式  
+        }
+        // 格式2: { code: 0, data: {...} } - SDK API格式
         else if (res.data.data && Array.isArray(res.data.data.data)) {
           datasets = res.data.data.data;
         }
@@ -143,7 +178,7 @@ const NewsCollector: React.FC = () => {
         else if (Array.isArray(res.data)) {
           datasets = res.data;
         }
-        
+
         setDatasets(datasets);
         console.log('加载知识库列表成功:', datasets.length, '个知识库');
         if (datasets.length > 0) {
@@ -164,33 +199,38 @@ const NewsCollector: React.FC = () => {
     }
   };
 
-  const loadSources = async (params?: {
-    page?: number;
-    pageSize?: number;
-    name?: string;
-    status?: string;
-  }, forceRefresh = false) => {
+  const loadSources = async (
+    params?: {
+      page?: number;
+      pageSize?: number;
+      name?: string;
+      status?: string;
+    },
+    forceRefresh = false,
+  ) => {
     console.log(`${forceRefresh ? '强制' : ''}加载新闻源列表...`, params);
     setSourcesLoading(true);
-    
+
     try {
       // 强制刷新时重置到第一页
       const requestParams = {
-        page: forceRefresh ? 1 : (params?.page || pagination.page || 1),
+        page: forceRefresh ? 1 : params?.page || pagination.page || 1,
         page_size: params?.pageSize || pagination.pageSize || 10,
         name: params?.name || searchKeyword || '',
-        status: params?.status || statusFilter || ''
+        status: params?.status || statusFilter || '',
       };
-      
+
       // 清理空参数
       const cleanParams = Object.fromEntries(
-        Object.entries(requestParams).filter(([_, v]) => v !== '' && v !== undefined)
+        Object.entries(requestParams).filter(
+          ([_, v]) => v !== '' && v !== undefined,
+        ),
       );
-      
+
       console.log('API请求参数:', cleanParams);
       const response = await getNewsSources(cleanParams, apiKey);
       console.log('API响应原始数据:', response);
-      
+
       // 安全检查响应数据
       if (response && response.data) {
         const { sources, total, page, page_size } = response.data.data;
@@ -198,23 +238,37 @@ const NewsCollector: React.FC = () => {
         const totalCount = typeof total === 'number' ? total : 0;
         const currentPage = typeof page === 'number' ? page : 1;
         const pageSize = typeof page_size === 'number' ? page_size : 10;
-        
-        console.log('解析后的数据:', { sourcesList: sourcesList.length, totalCount, currentPage, pageSize });
-        
+
+        console.log('解析后的数据:', {
+          sourcesList: sourcesList.length,
+          totalCount,
+          currentPage,
+          pageSize,
+        });
+
         setSources(sourcesList);
         setPagination({ page: currentPage, pageSize, total: totalCount });
-        console.log(`加载新闻源成功: ${sourcesList.length} 个，总计: ${totalCount}`);
-        
+        console.log(
+          `加载新闻源成功: ${sourcesList.length} 个，总计: ${totalCount}`,
+        );
+
         // 显示前几个新闻源的详细信息
         if (sourcesList.length > 0) {
-          console.log('前 3 个新闻源:', sourcesList.slice(0, 3).map(s => ({ id: s.id, name: s.name, url: s.url })));
+          console.log(
+            '前 3 个新闻源:',
+            sourcesList
+              .slice(0, 3)
+              .map((s) => ({ id: s.id, name: s.name, url: s.url })),
+          );
         }
-        
+
         // 如果是强制刷新且没有数据，给出提示
         if (forceRefresh && sourcesList.length === 0) {
           console.warn('强制刷新后仍然没有数据');
-          console.warn('可能原因: 1.数据库事务延迟 2.用户权限隔离 3.查询条件问题');
-          
+          console.warn(
+            '可能原因: 1.数据库事务延迟 2.用户权限隔离 3.查询条件问题',
+          );
+
           // 不立即显示警告，等待重试机制完成
           if (!forceRefresh) {
             message.warning('数据可能还在同步中，请稍后再试或手动刷新');
@@ -225,10 +279,9 @@ const NewsCollector: React.FC = () => {
         setSources([]);
         setPagination({ page: 1, pageSize: 10, total: 0 });
       }
-      
     } catch (error: any) {
       console.error('加载新闻源失败:', error);
-      
+
       // 更友好的错误处理
       let errorMessage = '加载新闻源列表失败';
       if (error.response?.status === 404) {
@@ -238,14 +291,14 @@ const NewsCollector: React.FC = () => {
       } else if (error.message) {
         errorMessage = error.message;
       }
-      
+
       // 只在非404错误时显示错误消息
       if (error.response?.status === 404) {
         console.warn('新闻收集器API接口不存在，请检查后端服务是否启动');
       } else {
         message.error(errorMessage);
       }
-      
+
       // 错误时设置空数据，防止页面崩溃
       setSources([]);
       setPagination({ page: 1, pageSize: 10, total: 0 });
@@ -256,7 +309,7 @@ const NewsCollector: React.FC = () => {
 
   // 事件处理函数
   const [editingSource, setEditingSource] = useState<NewsSource | null>(null);
-  
+
   const openAddModal = () => {
     setEditingSource(null);
     setFormModalVisible(true);
@@ -273,19 +326,27 @@ const NewsCollector: React.FC = () => {
   };
 
   // 显示抓取配置对话框
-  const handleCrawlNews = () => {
-    const activeSourceIds = sources.filter(s => s.status === 'active' && s.id).map(s => s.id!);
-    
+  const handleCrawlNews = async () => {
+    const activeSourceIds = sources
+      .filter((s) => s.status === 'active' && s.id)
+      .map((s) => s.id!);
+
     if (activeSourceIds.length === 0) {
       message.warning('没有可抓取的活跃新闻源');
       return;
     }
-    
+
+    // 确保知识库列表已加载
+    if (datasets.length === 0) {
+      console.log('知识库列表为空，重新加载...');
+      await loadDatasets();
+    }
+
     // 重置表单为默认值并显示模态框
     crawlConfigForm.setFieldsValue({
       depth: 2,
       max_pages_per_source: 10,
-      parse: false
+      parse: false,
     });
     setCrawlConfigModalVisible(true);
   };
@@ -294,31 +355,85 @@ const NewsCollector: React.FC = () => {
   const executeCrawl = async () => {
     try {
       const values = await crawlConfigForm.validateFields();
-      const activeSourceIds = sources.filter(s => s.status === 'active' && s.id).map(s => s.id!);
-      
+      const activeSourceIds = sources
+        .filter((s) => s.status === 'active' && s.id)
+        .map((s) => s.id!);
+
+      if (activeSourceIds.length === 0) {
+        message.warning('没有可抓取的活跃新闻源');
+        return;
+      }
+
       setCrawlConfigModalVisible(false);
       setLoading(true);
-      
-      await crawlFromPost({
-        source_ids: activeSourceIds,
-        depth: values.depth,
-        max_pages_per_source: values.max_pages_per_source,
-        kb_id: values.kb_id,  // 添加知识库ID
-        parse: values.parse || false  // 添加自动解析参数
-      }, apiKey);
-      
-      const selectedDataset = datasets.find(ds => ds.id === values.kb_id);
-      message.success(`已启动后台抓取任务，内容将上传到知识库「${selectedDataset?.name || values.kb_id}」`);
-      console.log('启动抓取任务成功:', { 
-        sourceIds: activeSourceIds, 
-        depth: values.depth, 
-        maxPages: values.max_pages_per_source,
-        kbId: values.kb_id,
-        kbName: selectedDataset?.name
-      });
+
+      const selectedDataset = datasets.find((ds) => ds.id === values.kb_id);
+
+      if (crawlMode === 'instant') {
+        // 即时抓取模式
+        await crawlFromPost(
+          {
+            source_ids: activeSourceIds,
+            depth: values.depth,
+            max_pages_per_source: values.max_pages_per_source,
+            kb_id: values.kb_id,
+            parse: values.parse || false,
+          },
+          apiKey,
+        );
+
+        message.success(
+          `已启动后台抓取任务，内容将上传到知识库「${selectedDataset?.name || values.kb_id}」`,
+        );
+        console.log('启动即时抓取任务成功:', {
+          sourceIds: activeSourceIds,
+          depth: values.depth,
+          maxPages: values.max_pages_per_source,
+          kbId: values.kb_id,
+          kbName: selectedDataset?.name,
+        });
+      } else {
+        // 主题搜索抓取模式
+        const maxPagesPerSource = Number.isFinite(
+          Number(values.max_pages_per_source),
+        )
+          ? Number(values.max_pages_per_source)
+          : 30;
+        const maxCrawlPagesPerSource = Number.isFinite(
+          Number(values.max_crawl_pages_per_source),
+        )
+          ? Number(values.max_crawl_pages_per_source)
+          : 100;
+        await topicSearchCrawl(
+          {
+            source_ids: activeSourceIds,
+            keywords: values.keywords || [],
+            max_depth: values.max_depth || 2,
+            max_pages_per_source: maxPagesPerSource,
+            max_crawl_pages_per_source: maxCrawlPagesPerSource,
+            score_threshold: values.score_threshold || 0.3,
+            kb_id: values.kb_id,
+            parse: values.parse || false,
+          },
+          apiKey,
+        );
+
+        message.success(
+          `已启动主题搜索抓取任务，内容将上传到知识库「${selectedDataset?.name || values.kb_id}」`,
+        );
+        console.log('启动主题搜索抓取任务成功:', {
+          sourceIds: activeSourceIds,
+          keywords: values.keywords,
+          maxDepth: values.max_depth,
+          maxPagesPerSource,
+          maxCrawlPagesPerSource,
+          kbId: values.kb_id,
+          kbName: selectedDataset?.name,
+        });
+      }
     } catch (error: any) {
       console.error('抓取失败:', error);
-      
+
       let errorMessage = '抓取失败';
       if (error.response?.status === 404) {
         errorMessage = '抓取API接口不存在，请检查后端服务';
@@ -327,7 +442,7 @@ const NewsCollector: React.FC = () => {
       } else if (error.message) {
         errorMessage = error.message;
       }
-      
+
       message.error(errorMessage);
     } finally {
       setLoading(false);
@@ -339,22 +454,22 @@ const NewsCollector: React.FC = () => {
       message.error('新闻源名称和URL不能为空');
       return;
     }
-    
+
     setLoading(true);
     try {
       console.log('=== 开始创建新闻源 ===');
       console.log('创建数据:', data);
       console.log('当前列表数量:', sources.length);
-      
+
       const response = await createNewsSource(data, apiKey);
       console.log('创建响应完整数据:', response);
       console.log('创建响应状态:', response.status);
       console.log('创建响应内容:', response.data);
-      
+
       if (response.status === 200 || response.status === 201) {
         message.success('新闻源创建成功');
         closeModal(); // 关闭弹窗
-        
+
         // 立即刷新列表
         console.log('刷新新闻源列表...');
         await loadSources(undefined, true);
@@ -363,106 +478,103 @@ const NewsCollector: React.FC = () => {
         console.warn('创建响应状态异常:', response.status);
         message.error('创建响应状态异常');
       }
-      
     } catch (error: any) {
       console.error('=== 创建新闻源失败 ===');
       console.error('错误详情:', error);
       console.error('错误响应:', error.response);
-      
+
       let errorMessage = '创建失败';
       if (error.response?.data?.message) {
         errorMessage = error.response.data.message;
       } else if (error.message) {
         errorMessage = error.message;
       }
-      
+
       message.error(errorMessage);
     } finally {
       setLoading(false);
     }
   };
-  
+
   const handleEditSource = async (data: NewsSource) => {
     if (!editingSource?.id) {
       message.warning('无法获取必要信息');
       return;
     }
-    
+
     if (!data.name || !data.url) {
       message.error('新闻源名称和URL不能为空');
       return;
     }
-    
+
     setLoading(true);
     try {
       console.log('更新新闻源:', editingSource.id, data);
       const response = await updateNewsSource(editingSource.id, data, apiKey);
       console.log('更新响应:', response);
-      
+
       message.success('新闻源更新成功');
       closeModal(); // 关闭弹窗
-      
+
       // 立即刷新列表
       console.log('刷新新闻源列表...');
       await loadSources(undefined, true);
       console.log('列表刷新完成');
-      
     } catch (error: any) {
       console.error('更新新闻源失败:', error);
-      
+
       let errorMessage = '更新失败';
       if (error.response?.data?.message) {
         errorMessage = error.response.data.message;
       } else if (error.message) {
         errorMessage = error.message;
       }
-      
+
       message.error(errorMessage);
     } finally {
       setLoading(false);
     }
   };
-  
+
   const handleDeleteSource = async (id: string) => {
     if (!id) {
       message.error('无效的新闻源ID');
       return;
     }
-    
+
     try {
       console.log('删除新闻源:', id);
       const response = await deleteNewsSource(id, apiKey);
       console.log('删除响应:', response);
-      
+
       message.success('新闻源删除成功');
-      
+
       // 立即刷新列表
       console.log('刷新新闻源列表...');
       await loadSources(undefined, true);
       console.log('列表刷新完成');
-      
     } catch (error: any) {
       console.error('删除新闻源失败:', error);
-      
+
       let errorMessage = '删除失败';
       if (error.response?.data?.message) {
         errorMessage = error.response.data.message;
       } else if (error.message) {
         errorMessage = error.message;
       }
-      
+
       message.error(errorMessage);
     }
   };
-  
+
   // API状态检查 - 增强调试信息
   const checkApiStatus = async () => {
     console.log('=== API 状态检查开始 ===');
-    
+
     // 检查认证方式
     const authType = getAuthType();
     console.log('当前认证方式:', authType);
-    
+
     if (authType === 'login') {
       console.log('✅ 使用主系统登录态');
     } else if (authType === 'apikey') {
@@ -476,17 +588,19 @@ const NewsCollector: React.FC = () => {
       setApiStatus('error');
       return;
     }
-    
+
     setApiStatus('checking');
     try {
       console.log('调用 checkApiHealth...');
       const result = await checkApiHealth(apiKey);
       console.log('checkApiHealth 结果:', result);
-      
+
       if (result.status === 'ok') {
         setApiStatus('ok');
         console.log('✅ API状态正常');
-        message.success(`认证成功 (${authType === 'login' ? '登录态' : 'API Key'})`);
+        message.success(
+          `认证成功 (${authType === 'login' ? '登录态' : 'API Key'})`,
+        );
       } else {
         setApiStatus('error');
         console.warn('❌ API状态异常:', result.error);
@@ -495,7 +609,7 @@ const NewsCollector: React.FC = () => {
     } catch (error: any) {
       setApiStatus('error');
       console.error('❌ API状态检查失败:', error);
-      
+
       let errorMsg = 'API 连接失败';
       if (error.response?.status === 401) {
         errorMsg = '认证失败，请重新登录或配置 API Key';
@@ -504,7 +618,7 @@ const NewsCollector: React.FC = () => {
       } else if (error.message) {
         errorMsg = error.message;
       }
-      
+
       message.error(errorMsg);
     }
     console.log('=== API 状态检查结束 ===');
@@ -514,7 +628,7 @@ const NewsCollector: React.FC = () => {
   useEffect(() => {
     const authType = getAuthType();
     console.log('组件加载，认证方式:', authType);
-    
+
     if (hasAuthToken()) {
       // 有认证信息（登录态或 API Key），检查API状态
       checkApiStatus();
@@ -531,13 +645,13 @@ const NewsCollector: React.FC = () => {
   useEffect(() => {
     if (apiStatus === 'ok') {
       console.log('API状态正常，加载初始数据');
-      loadDatasets().catch(err => {
+      loadDatasets().catch((err) => {
         console.error('加载数据集失败:', err);
       });
-      
+
       // 只在没有搜索条件时加载全部数据
       if (!searchKeyword && !statusFilter) {
-        loadSources().catch(err => {
+        loadSources().catch((err) => {
           console.error('加载新闻源失败:', err);
         });
       }
@@ -548,13 +662,18 @@ const NewsCollector: React.FC = () => {
   useEffect(() => {
     // 只有在API状态正常且有认证信息时才响应搜索
     if (hasAuthToken() && apiStatus === 'ok') {
-      console.log('搜索条件变化，重新加载数据:', { searchKeyword, statusFilter });
+      console.log('搜索条件变化，重新加载数据:', {
+        searchKeyword,
+        statusFilter,
+      });
       const timeoutId = setTimeout(() => {
-        loadSources({ name: searchKeyword, status: statusFilter }).catch(err => {
-          console.error('搜索加载失败:', err);
-        });
+        loadSources({ name: searchKeyword, status: statusFilter }).catch(
+          (err) => {
+            console.error('搜索加载失败:', err);
+          },
+        );
       }, 300); // 防抖：延迟300ms执行，避免频繁请求
-      
+
       return () => clearTimeout(timeoutId);
     }
   }, [searchKeyword, statusFilter]);
@@ -572,7 +691,9 @@ const NewsCollector: React.FC = () => {
               <div>
                 <p>使用新闻源管理功能需要身份认证，有两种方式：</p>
                 <ul style={{ marginBottom: 0, paddingLeft: '20px' }}>
-                  <li><strong>推荐</strong>：登录 RAGFlow 主系统后自动认证</li>
+                  <li>
+                    <strong>推荐</strong>：登录 RAGFlow 主系统后自动认证
+                  </li>
                   <li>手动配置 API Key（适用于独立部署场景）</li>
                 </ul>
               </div>
@@ -585,7 +706,7 @@ const NewsCollector: React.FC = () => {
             }
           />
         )}
-        
+
         {hasAuthToken() && apiStatus === 'error' && (
           <Alert
             type="error"
@@ -593,8 +714,15 @@ const NewsCollector: React.FC = () => {
             message="认证失败或服务连接异常"
             description={
               <div>
-                <p>当前认证方式：<strong>{getAuthType() === 'login' ? '主系统登录态' : 'API Key'}</strong></p>
-                <p>可能原因：认证信息无效、过期，或新闻收集器 API 接口不可用。</p>
+                <p>
+                  当前认证方式：
+                  <strong>
+                    {getAuthType() === 'login' ? '主系统登录态' : 'API Key'}
+                  </strong>
+                </p>
+                <p>
+                  可能原因：认证信息无效、过期，或新闻收集器 API 接口不可用。
+                </p>
               </div>
             }
             action={
@@ -605,7 +733,10 @@ const NewsCollector: React.FC = () => {
                   </Button>
                 )}
                 {getAuthType() === 'login' && (
-                  <Button size="small" onClick={() => window.location.href = '/login'}>
+                  <Button
+                    size="small"
+                    onClick={() => (window.location.href = '/login')}
+                  >
                     重新登录
                   </Button>
                 )}
@@ -617,7 +748,7 @@ const NewsCollector: React.FC = () => {
             style={{ marginBottom: 16 }}
           />
         )}
-        
+
         {hasAuthToken() && apiStatus === 'checking' && (
           <Alert
             type="info"
@@ -626,7 +757,7 @@ const NewsCollector: React.FC = () => {
             style={{ marginBottom: 16 }}
           />
         )}
-        
+
         {/* 头部区域 */}
         <div className="flex justify-between items-center mb-6">
           <div>
@@ -636,28 +767,32 @@ const NewsCollector: React.FC = () => {
             </p>
             {hasAuthToken() && (
               <p className="text-green-600 text-xs">
-                ✅ 已认证 ({getAuthType() === 'login' ? '主系统登录态' : `API Key: ${apiKey?.substring(0, 8)}...`})
+                ✅ 已认证 (
+                {getAuthType() === 'login'
+                  ? '主系统登录态'
+                  : `API Key: ${apiKey?.substring(0, 8)}...`}
+                )
               </p>
             )}
           </div>
           <Space>
-            <Button 
+            <Button
               icon={<KeyOutlined />}
               onClick={openApiKeyModal}
               title="配置API Key"
             >
               API Key
             </Button>
-            <Button 
-              type="primary" 
+            <Button
+              type="primary"
               icon={<PlusOutlined />}
               onClick={openAddModal}
               disabled={!hasAuthToken()}
             >
               添加新闻源
             </Button>
-            <Button 
-              type="primary" 
+            <Button
+              type="primary"
               icon={<SyncOutlined />}
               onClick={handleCrawlNews}
               loading={loading}
@@ -671,102 +806,133 @@ const NewsCollector: React.FC = () => {
         {/* 主要内容区域 - 可滚动 */}
         <div className="h-[calc(100dvh-220px)] overflow-auto scrollbar-thin">
           <Card style={{ marginTop: 16 }}>
-          <Tabs defaultActiveKey="sources">
-            <TabPane tab="新闻源管理" key="sources">
-              {/* 搜索过滤区域 */}
-              <div style={{ marginBottom: 16 }}>
-                <Space>
-                  <Search
-                    placeholder="搜索新闻源名称"
-                    value={searchKeyword}
-                    onChange={(e) => setSearchKeyword(e.target.value)}
-                    style={{ width: 200 }}
-                    allowClear
-                  />
-                  <Select
-                    placeholder="选择状态"
-                    value={statusFilter}
-                    onChange={setStatusFilter}
-                    style={{ width: 120 }}
-                    allowClear
-                  >
-                    <Select.Option value="active">启用</Select.Option>
-                    <Select.Option value="inactive">禁用</Select.Option>
-                  </Select>
-                  <span style={{ color: '#666', fontSize: '14px' }}>
-                    共 {pagination.total} 个新闻源 (当前显示: {sources.length})
-                  </span>
-                </Space>
-              </div>
-              
-              {/* 新闻源列表 */}
-              <Spin spinning={sourcesLoading}>
-                {sources.length === 0 && !sourcesLoading ? (
-                  <Empty 
-                    description="暂无新闻源" 
-                    style={{ margin: '40px 0' }}
-                  >
-                    <Button type="primary" onClick={openAddModal}>
-                      添加第一个新闻源
-                    </Button>
-                  </Empty>
-                ) : (
-                  <div>
-                    {sources.map((source, index) => (
-                      <Card 
-                        key={source.id || index} 
-                        size="small" 
-                        style={{ marginBottom: 8 }}
-                        title={
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span>{source.name}</span>
-                            <Space>
-                              <Button 
-                                size="small" 
-                                icon={<EditOutlined />}
-                                onClick={() => openEditModal(source)}
-                              >
-                                编辑
-                              </Button>
-                              <Popconfirm
-                                title="删除新闻源"
-                                description={`确定要删除新闻源「${source.name}」吗？`}
-                                onConfirm={() => source.id && handleDeleteSource(source.id)}
-                                okText="确定"
-                                cancelText="取消"
-                              >
-                                <Button 
-                                  size="small" 
-                                  danger
-                                  icon={<DeleteOutlined />}
+            <Tabs defaultActiveKey="sources">
+              <TabPane tab="新闻源管理" key="sources">
+                {/* 搜索过滤区域 */}
+                <div style={{ marginBottom: 16 }}>
+                  <Space>
+                    <Search
+                      placeholder="搜索新闻源名称"
+                      value={searchKeyword}
+                      onChange={(e) => setSearchKeyword(e.target.value)}
+                      style={{ width: 200 }}
+                      allowClear
+                    />
+                    <Select
+                      placeholder="选择状态"
+                      value={statusFilter}
+                      onChange={setStatusFilter}
+                      style={{ width: 120 }}
+                      allowClear
+                    >
+                      <Select.Option value="active">启用</Select.Option>
+                      <Select.Option value="inactive">禁用</Select.Option>
+                    </Select>
+                    <span style={{ color: '#666', fontSize: '14px' }}>
+                      共 {pagination.total} 个新闻源 (当前显示: {sources.length}
+                      )
+                    </span>
+                  </Space>
+                </div>
+
+                {/* 新闻源列表 */}
+                <Spin spinning={sourcesLoading}>
+                  {sources.length === 0 && !sourcesLoading ? (
+                    <Empty
+                      description="暂无新闻源"
+                      style={{ margin: '40px 0' }}
+                    >
+                      <Button type="primary" onClick={openAddModal}>
+                        添加第一个新闻源
+                      </Button>
+                    </Empty>
+                  ) : (
+                    <div>
+                      {sources.map((source, index) => (
+                        <Card
+                          key={source.id || index}
+                          size="small"
+                          style={{ marginBottom: 8 }}
+                          title={
+                            <div
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                              }}
+                            >
+                              <span>{source.name}</span>
+                              <Space>
+                                <Button
+                                  size="small"
+                                  icon={<EditOutlined />}
+                                  onClick={() => openEditModal(source)}
                                 >
-                                  删除
+                                  编辑
                                 </Button>
-                              </Popconfirm>
-                            </Space>
-                          </div>
-                        }
-                      >
-                        <p><strong>URL:</strong> <a href={source.url} target="_blank" rel="noopener noreferrer">{source.url}</a></p>
-                        <p><strong>状态:</strong> {source.status === 'active' ? '启用' : '禁用'}</p>
-                        <p><strong>模式:</strong> {source.remark === '1' ? '精确模式' : '自动模式'}</p>
-                        {source.fetch_config && Object.keys(source.fetch_config).length > 0 && (
-                          <div>
-                            <p><strong>CSS选择器配置:</strong></p>
-                            <ul style={{ fontSize: '12px', color: '#666' }}>
-                              {Object.entries(source.fetch_config).map(([key, value]) => (
-                                <li key={key}>{key}: {value}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                      </Card>
-                    ))}
-                  </div>
-                )}
-              </Spin>
-            </TabPane>
-          </Tabs>
+                                <Popconfirm
+                                  title="删除新闻源"
+                                  description={`确定要删除新闻源「${source.name}」吗？`}
+                                  onConfirm={() =>
+                                    source.id && handleDeleteSource(source.id)
+                                  }
+                                  okText="确定"
+                                  cancelText="取消"
+                                >
+                                  <Button
+                                    size="small"
+                                    danger
+                                    icon={<DeleteOutlined />}
+                                  >
+                                    删除
+                                  </Button>
+                                </Popconfirm>
+                              </Space>
+                            </div>
+                          }
+                        >
+                          <p>
+                            <strong>URL:</strong>{' '}
+                            <a
+                              href={source.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              {source.url}
+                            </a>
+                          </p>
+                          <p>
+                            <strong>状态:</strong>{' '}
+                            {source.status === 'active' ? '启用' : '禁用'}
+                          </p>
+                          <p>
+                            <strong>模式:</strong>{' '}
+                            {source.remark === '1' ? '精确模式' : '自动模式'}
+                          </p>
+                          {source.fetch_config &&
+                            Object.keys(source.fetch_config).length > 0 && (
+                              <div>
+                                <p>
+                                  <strong>CSS选择器配置:</strong>
+                                </p>
+                                <ul style={{ fontSize: '12px', color: '#666' }}>
+                                  {Object.entries(source.fetch_config).map(
+                                    ([key, value]) => (
+                                      <li key={key}>
+                                        {key}: {value}
+                                      </li>
+                                    ),
+                                  )}
+                                </ul>
+                              </div>
+                            )}
+                        </Card>
+                      ))}
+                    </div>
+                  )}
+                </Spin>
+              </TabPane>
+            </Tabs>
           </Card>
         </div>
 
@@ -786,7 +952,7 @@ const NewsCollector: React.FC = () => {
             isEditing={!!editingSource}
           />
         </Modal>
-        
+
         {/* API Key 配置模态框 */}
         <Modal
           title="配置 API Key"
@@ -811,36 +977,54 @@ const NewsCollector: React.FC = () => {
             {tempApiKey && (
               <div style={{ marginTop: 8, fontSize: '12px', color: '#666' }}>
                 <p>长度: {tempApiKey.length} 字符</p>
-                <p>格式: {/^[a-zA-Z0-9\-_]{20,}$/.test(tempApiKey) ? '✅ 正常' : '❌ 可能异常'}</p>
+                <p>
+                  格式:{' '}
+                  {/^[a-zA-Z0-9\-_]{20,}$/.test(tempApiKey)
+                    ? '✅ 正常'
+                    : '❌ 可能异常'}
+                </p>
               </div>
             )}
           </div>
-          
+
           <Space direction="vertical" style={{ width: '100%' }}>
             <Alert
               type="success"
               message="推荐方式"
               description={
                 <div>
-                  <p><strong>如果您已登录 RAGFlow 主系统，无需配置 API Key</strong></p>
+                  <p>
+                    <strong>
+                      如果您已登录 RAGFlow 主系统，无需配置 API Key
+                    </strong>
+                  </p>
                   <p>系统会自动使用您的登录态进行认证。</p>
                 </div>
               }
             />
-            
+
             <Alert
               type="info"
               message="手动配置 API Key（适用于独立部署场景）"
               description={
                 <div>
-                  <p>1. 访问 <a href="http://localhost:9380" target="_blank" rel="noopener noreferrer">RAGFlow 系统</a></p>
+                  <p>
+                    1. 访问{' '}
+                    <a
+                      href="http://localhost:9380"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      RAGFlow 系统
+                    </a>
+                  </p>
                   <p>2. 登录您的账户</p>
                   <p>3. 在设置页面生成或查看 API Key</p>
                   <p>4. 复制完整的 API Key 到此处</p>
                 </div>
               }
             />
-            
+
             <Alert
               type="warning"
               message="注意事项"
@@ -865,17 +1049,50 @@ const NewsCollector: React.FC = () => {
           onCancel={() => setCrawlConfigModalVisible(false)}
           okText="开始抓取"
           cancelText="取消"
-          width={500}
+          width={600}
           style={{ top: 40 }}
         >
+          {/* 抓取模式选择 */}
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ marginRight: 20 }}>
+              <input
+                type="radio"
+                value="instant"
+                checked={crawlMode === 'instant'}
+                onChange={(e) => {
+                  setCrawlMode(e.target.value as 'instant' | 'topic');
+                  crawlConfigForm.resetFields();
+                }}
+                style={{ marginRight: 8 }}
+              />
+              即时抓取
+            </label>
+            <label>
+              <input
+                type="radio"
+                value="topic"
+                checked={crawlMode === 'topic'}
+                onChange={(e) => {
+                  setCrawlMode(e.target.value as 'instant' | 'topic');
+                  crawlConfigForm.resetFields();
+                }}
+                style={{ marginRight: 8 }}
+              />
+              主题搜索抓取
+            </label>
+          </div>
+
           <Form
             form={crawlConfigForm}
             layout="vertical"
             initialValues={{
               depth: 2,
               max_pages_per_source: 10,
+              max_depth: 2,
+              max_crawl_pages_per_source: 100,
+              score_threshold: 0.3,
               kb_id: datasets.length === 1 ? datasets[0].id : undefined,
-              parse: false
+              parse: false,
             }}
           >
             <Form.Item
@@ -884,13 +1101,13 @@ const NewsCollector: React.FC = () => {
                 <span>
                   目标知识库
                   <Tooltip title="抓取的新闻内容将自动上传到选定的知识库并解析">
-                    <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                    <QuestionCircleOutlined
+                      style={{ marginLeft: 8, color: '#1890ff' }}
+                    />
                   </Tooltip>
                 </span>
               }
-              rules={[
-                { required: true, message: '请选择目标知识库' }
-              ]}
+              rules={[{ required: true, message: '请选择目标知识库' }]}
             >
               <Select
                 placeholder="选择知识库"
@@ -898,7 +1115,7 @@ const NewsCollector: React.FC = () => {
                 optionFilterProp="children"
                 style={{ width: '100%' }}
               >
-                {datasets.map(ds => (
+                {datasets.map((ds) => (
                   <Select.Option key={ds.id} value={ds.id}>
                     {ds.name}
                   </Select.Option>
@@ -906,28 +1123,94 @@ const NewsCollector: React.FC = () => {
               </Select>
             </Form.Item>
 
-            <Form.Item
-              name="depth"
-              label={
-                <span>
-                  抓取深度
-                  <Tooltip title="从新闻源首页开始，递归抓取的链接层级深度">
-                    <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
-                  </Tooltip>
-                </span>
-              }
-              rules={[
-                { required: true, message: '请输入抓取深度' },
-                { type: 'number', min: 1, max: 5, message: '抓取深度范围：1-5' }
-              ]}
-            >
-              <InputNumber
-                min={1}
-                max={5}
-                style={{ width: '100%' }}
-                placeholder="建议：1-3层"
-              />
-            </Form.Item>
+            {/* 即时抓取模式的深度字段 */}
+            {crawlMode === 'instant' && (
+              <Form.Item
+                name="depth"
+                label={
+                  <span>
+                    抓取深度
+                    <Tooltip title="从新闻源首页开始，递归抓取的链接层级深度">
+                      <QuestionCircleOutlined
+                        style={{ marginLeft: 8, color: '#1890ff' }}
+                      />
+                    </Tooltip>
+                  </span>
+                }
+                rules={[
+                  { required: true, message: '请输入抓取深度' },
+                  {
+                    type: 'number',
+                    min: 1,
+                    max: 5,
+                    message: '抓取深度范围：1-5',
+                  },
+                ]}
+              >
+                <InputNumber
+                  min={1}
+                  max={5}
+                  style={{ width: '100%' }}
+                  placeholder="建议：1-3层"
+                />
+              </Form.Item>
+            )}
+
+            {/* 主题搜索模式的关键词字段 */}
+            {crawlMode === 'topic' && (
+              <Form.Item
+                name="keywords"
+                label={
+                  <span>
+                    搜索关键词 *
+                    <Tooltip title="输入多个关键词，用逗号分隔，如：电力市场,现货交易">
+                      <QuestionCircleOutlined
+                        style={{ marginLeft: 8, color: '#1890ff' }}
+                      />
+                    </Tooltip>
+                  </span>
+                }
+                rules={[{ required: true, message: '请输入搜索关键词' }]}
+              >
+                <Input
+                  placeholder="输入关键词，用逗号分隔"
+                  onChange={(e) => {
+                    const keywords = e.target.value
+                      .split(',')
+                      .map((k) => k.trim())
+                      .filter((k) => k);
+                    crawlConfigForm.setFieldValue('keywords', keywords);
+                  }}
+                />
+              </Form.Item>
+            )}
+
+            {/* 主题搜索模式的最大深度字段 */}
+            {crawlMode === 'topic' && (
+              <Form.Item
+                name="max_depth"
+                label={
+                  <span>
+                    最大爬取深度
+                    <Tooltip title="从新闻源首页开始，递归爬取的链接层级深度">
+                      <QuestionCircleOutlined
+                        style={{ marginLeft: 8, color: '#1890ff' }}
+                      />
+                    </Tooltip>
+                  </span>
+                }
+                rules={[
+                  { type: 'number', min: 1, max: 5, message: '深度范围：1-5' },
+                ]}
+              >
+                <InputNumber
+                  min={1}
+                  max={5}
+                  style={{ width: '100%' }}
+                  placeholder="默认：2"
+                />
+              </Form.Item>
+            )}
 
             <Form.Item
               name="max_pages_per_source"
@@ -935,22 +1218,92 @@ const NewsCollector: React.FC = () => {
                 <span>
                   每源最大页数
                   <Tooltip title="每个新闻源最多抓取的页面数量">
-                    <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                    <QuestionCircleOutlined
+                      style={{ marginLeft: 8, color: '#1890ff' }}
+                    />
                   </Tooltip>
                 </span>
               }
               rules={[
                 { required: true, message: '请输入最大页数' },
-                { type: 'number', min: 1, max: 1000, message: '最大页数范围：1-1000' }
+                {
+                  type: 'number',
+                  min: 1,
+                  max: 1000,
+                  message: '最大页数范围：1-1000',
+                },
               ]}
             >
               <InputNumber
                 min={1}
                 max={1000}
                 style={{ width: '100%' }}
-                placeholder="建议：10-50页"
+                placeholder={
+                  crawlMode === 'instant' ? '建议：10-50页' : '默认：30'
+                }
               />
             </Form.Item>
+
+            {/* 主题搜索模式的最大爬取页数字段 */}
+            {crawlMode === 'topic' && (
+              <Form.Item
+                name="max_crawl_pages_per_source"
+                label={
+                  <span>
+                    每源最大爬取页数
+                    <Tooltip title="每个源最多爬取的页面数，用于限制爬虫的搜索范围">
+                      <QuestionCircleOutlined
+                        style={{ marginLeft: 8, color: '#1890ff' }}
+                      />
+                    </Tooltip>
+                  </span>
+                }
+                rules={[
+                  { required: true, message: '请输入每源最大爬取页数' },
+                  {
+                    type: 'number',
+                    min: 1,
+                    max: 10000,
+                    message: '范围：1-10000',
+                  },
+                ]}
+              >
+                <InputNumber
+                  min={1}
+                  max={10000}
+                  style={{ width: '100%' }}
+                  placeholder="默认：100"
+                />
+              </Form.Item>
+            )}
+
+            {/* 主题搜索模式的相关性分数阈值字段 */}
+            {crawlMode === 'topic' && (
+              <Form.Item
+                name="score_threshold"
+                label={
+                  <span>
+                    相关性分数阈值
+                    <Tooltip title="0-1之间，低于此分数的页面将被跳过，默认0.3">
+                      <QuestionCircleOutlined
+                        style={{ marginLeft: 8, color: '#1890ff' }}
+                      />
+                    </Tooltip>
+                  </span>
+                }
+                rules={[
+                  { type: 'number', min: 0, max: 1, message: '范围：0-1' },
+                ]}
+              >
+                <InputNumber
+                  min={0}
+                  max={1}
+                  step={0.1}
+                  style={{ width: '100%' }}
+                  placeholder="默认：0.3"
+                />
+              </Form.Item>
+            )}
 
             <Form.Item
               name="parse"
@@ -958,33 +1311,80 @@ const NewsCollector: React.FC = () => {
                 <span>
                   自动解析
                   <Tooltip title="上传后立即解析文档，解析完成后内容可用于检索和问答。关闭时只上传不解析，可稍后手动解析。">
-                    <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                    <QuestionCircleOutlined
+                      style={{ marginLeft: 8, color: '#1890ff' }}
+                    />
                   </Tooltip>
                 </span>
               }
               valuePropName="checked"
             >
-              <Switch 
-                checkedChildren="开启" 
-                unCheckedChildren="关闭"
-              />
+              <Switch checkedChildren="开启" unCheckedChildren="关闭" />
             </Form.Item>
 
             <Alert
               type="info"
-              message="抓取说明"
+              message={
+                crawlMode === 'instant' ? '即时抓取说明' : '主题搜索抓取说明'
+              }
               description={
                 <div>
-                  <p><strong>目标知识库：</strong>抓取的新闻内容将自动上传到选定的知识库</p>
-                  <p style={{ marginTop: 8 }}><strong>抓取深度：</strong>控制从首页开始的链接递归层级</p>
-                  <p style={{ marginTop: 8 }}><strong>自动解析：</strong>开启后上传完成立即解析，关闭则只上传不解析（可稍后手动解析）</p>
-                  <ul style={{ marginLeft: 20, marginTop: 4 }}>
-                    <li>深度 1：仅抓取首页</li>
-                    <li>深度 2：首页 + 首页链接的页面</li>
-                    <li>深度 3：再深入一层</li>
-                  </ul>
-                  <p style={{ marginTop: 8 }}><strong>每源最大页数：</strong>限制单个新闻源的抓取数量，避免过度抓取</p>
-                  <p style={{ marginTop: 8, color: '#ff9800' }}>⚠️ 深度和页数越大，抓取时间越长</p>
+                  {crawlMode === 'instant' ? (
+                    <>
+                      <p>
+                        <strong>目标知识库：</strong>
+                        抓取的新闻内容将自动上传到选定的知识库
+                      </p>
+                      <p style={{ marginTop: 8 }}>
+                        <strong>抓取深度：</strong>控制从首页开始的链接递归层级
+                      </p>
+                      <p style={{ marginTop: 8 }}>
+                        <strong>自动解析：</strong>
+                        开启后上传完成立即解析，关闭则只上传不解析（可稍后手动解析）
+                      </p>
+                      <ul style={{ marginLeft: 20, marginTop: 4 }}>
+                        <li>深度 1：仅抓取首页</li>
+                        <li>深度 2：首页 + 首页链接的页面</li>
+                        <li>深度 3：再深入一层</li>
+                      </ul>
+                      <p style={{ marginTop: 8 }}>
+                        <strong>每源最大页数：</strong>
+                        限制单个新闻源的抓取数量，避免过度抓取
+                      </p>
+                      <p style={{ marginTop: 8, color: '#ff9800' }}>
+                        ⚠️ 深度和页数越大，抓取时间越长
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p>
+                        <strong>搜索关键词：</strong>
+                        输入多个关键词，爬虫会优先抓取与关键词相关的内容
+                      </p>
+                      <p style={{ marginTop: 8 }}>
+                        <strong>最大爬取深度：</strong>
+                        从首页开始递归爬取的层级深度
+                      </p>
+                      <p style={{ marginTop: 8 }}>
+                        <strong>每源最大页数：</strong>
+                        每个源最多抓取的相关页面数
+                      </p>
+                      <p style={{ marginTop: 8 }}>
+                        <strong>每源最大爬取页数：</strong>
+                        爬虫最多爬取的页面数（用于限制搜索范围）
+                      </p>
+                      <p style={{ marginTop: 8 }}>
+                        <strong>相关性分数阈值：</strong>
+                        0-1之间，低于此分数的页面将被跳过
+                      </p>
+                      <p style={{ marginTop: 8 }}>
+                        <strong>自动解析：</strong>开启后上传完成立即解析
+                      </p>
+                      <p style={{ marginTop: 8, color: '#ff9800' }}>
+                        ⚠️ 关键词越多、深度越大，抓取时间越长
+                      </p>
+                    </>
+                  )}
                 </div>
               }
               style={{ marginTop: 16 }}

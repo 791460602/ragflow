@@ -51,6 +51,7 @@ from crawl4ai.deep_crawling import BFSDeepCrawlStrategy
 from crawl4ai.deep_crawling.filters import FilterChain, ContentTypeFilter
 
 
+
 # =================================================================================
 # LibraryCrawler 类 - 基础爬虫（精确模式/自动模式）
 # =================================================================================
@@ -397,6 +398,21 @@ class TopicCrawler:
                     # 提取内容
                     content_text = self._extract_content(result)
                     title = getattr(result, "title", "") or ""
+                    if not str(title).strip():
+                        try:
+                            if result.metadata and isinstance(result.metadata, dict):
+                                title = result.metadata.get("title") or title
+                        except Exception:
+                            pass
+                    if not str(title).strip():
+                        try:
+                            html = getattr(result, "html", None)
+                            if html:
+                                soup = BeautifulSoup(html, "html.parser")
+                                title = soup.title.string if soup.title and soup.title.string else title
+                        except Exception:
+                            pass
+                    title = (title or "").strip()
 
                     if not content_text or len(content_text.strip()) < 100:
                         continue
@@ -508,8 +524,22 @@ async def _upload_to_knowledgebase(kb_id: str, tenant_id: str, file_path: str, a
             file_content = await f.read()
 
         # 准备文档数据
-        article_title = article_data.get("title", "Untitled")
+        article_title = (article_data.get("title") or "").strip()
+        if not article_title:
+            try:
+                u = (article_data.get("url") or "").strip()
+                if u:
+                    parsed = urlparse(u)
+                    last_seg = (parsed.path or "").rstrip("/").split("/")[-1]
+                    article_title = last_seg or parsed.netloc
+            except Exception:
+                article_title = ""
+        if not article_title:
+            article_title = "Untitled"
+
         sanitized_title = _sanitize_filename(article_title)
+        if not sanitized_title:
+            sanitized_title = _sanitize_filename(f"Untitled_{datetime.now().strftime('%Y%m%d%H%M%S')}")
         doc_name = f"{sanitized_title}.json"
 
         # location 应该是相对于 bucket 的路径
@@ -658,7 +688,7 @@ async def _async_crawl_from_post_worker(tenant_id: str, source_ids: list, depth:
 
             for page_data in new_articles:
                 content_hash = page_data.get("content_hash")
-                page_title = _sanitize_filename(page_data.get("title", "untitled"))
+                page_title = _sanitize_filename((page_data.get("title") or "untitled"))
                 timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
                 filename = f"{page_title}_{timestamp}_{content_hash[:16]}.json"
 
@@ -763,7 +793,7 @@ async def _async_topic_search_worker(
         for page_data in new_articles:
             content_hash = page_data.get("content_hash")
             source_id = page_data.get("source_id")
-            page_title = _sanitize_filename(page_data.get("title", "untitled"))
+            page_title = _sanitize_filename((page_data.get("title") or "untitled"))
             timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
             filename = f"topic_{page_title}_{timestamp}_{content_hash[:16]}.json"
 
