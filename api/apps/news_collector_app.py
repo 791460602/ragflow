@@ -30,6 +30,7 @@ from api.apps import login_required, current_user
 from api.utils.api_utils import get_json_result, server_error_response, validate_request
 from api.db.services.news_service import NewsSourceService, NewsContentService
 from api.db.services.knowledgebase_service import KnowledgebaseService
+from api.db.services.user_service import TenantService
 import threading
 import traceback
 
@@ -58,10 +59,10 @@ def list_news_sources():
 @manager.route("/sources", methods=["POST"])  # noqa: F821
 @login_required
 @validate_request("name", "url")
-def create_news_source():
+async def create_news_source():
     """创建新闻源"""
     try:
-        req = request.json
+        req = await request.get_json()
 
         source = NewsSourceService.create_source(tenant_id=current_user.id, user_id=current_user.id, **req)
 
@@ -94,10 +95,10 @@ def get_news_source(source_id):
 
 @manager.route("/sources/<source_id>", methods=["PUT"])  # noqa: F821
 @login_required
-def update_news_source(source_id):
+async def update_news_source(source_id):
     """更新新闻源"""
     try:
-        req = request.json
+        req = await request.get_json()
         source = NewsSourceService.update_source(source_id=source_id, tenant_id=current_user.id, **req)
 
         return get_json_result(data={"source": source})
@@ -202,7 +203,8 @@ async def topic_search_web():
         keywords = req_data.get("keywords")
         max_depth = int(req_data.get("max_depth", 2))
         max_pages_per_source = int(req_data.get("max_pages_per_source", 30))
-        total_max_pages = int(req_data.get("total_max_pages", 100))
+        # 兼容前端旧字段 max_crawl_pages_per_source
+        total_max_pages = int(req_data.get("total_max_pages", req_data.get("max_crawl_pages_per_source", 100)))
         score_threshold = float(req_data.get("score_threshold", 0.3))
         kb_id = req_data.get("kb_id")
         parse = req_data.get("parse", False)
@@ -244,6 +246,46 @@ async def topic_search_web():
 
     except Exception as e:
         traceback.print_exc()
+        return server_error_response(e)
+
+
+# ========== 知识库管理 ==========
+
+
+@manager.route("/datasets", methods=["GET"])  # noqa: F821
+@login_required
+def list_datasets_web():
+    """获取当前用户的知识库列表"""
+    try:
+        tenant_id = current_user.id
+        
+        # 获取用户所在的租户列表
+        tenants = TenantService.get_joined_tenants_by_user_id(tenant_id)
+        joined_tenant_ids = [m["tenant_id"] for m in tenants]
+        
+        # 获取知识库列表
+        kbs, total = KnowledgebaseService.get_list(
+            joined_tenant_ids=joined_tenant_ids,
+            user_id=tenant_id,
+            page_number=1,
+            items_per_page=1000,
+            orderby="create_time",
+            desc=True,
+            id=None,
+            name=None
+        )
+        
+        # 转换为简化格式
+        datasets = []
+        for kb in kbs:
+            datasets.append({
+                "id": kb.get("id"),
+                "name": kb.get("name")
+            })
+        
+        return get_json_result(data=datasets)
+    
+    except Exception as e:
         return server_error_response(e)
 
 
