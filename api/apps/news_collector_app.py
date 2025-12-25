@@ -108,9 +108,11 @@ async def create_news_source():
     try:
         req = await request.get_json()
 
-        source = NewsSourceService.create_source(tenant_id=current_user.id, user_id=current_user.id, **req)
-
-        return get_json_result(data={"source": source})
+        try:
+            source = NewsSourceService.create_source(tenant_id=current_user.id, user_id=current_user.id, **req)
+            return get_json_result(data={"source": source})
+        except ValueError as ve:
+            return get_json_result(code=400, message=str(ve))
 
     except Exception as e:
         return server_error_response(e)
@@ -143,9 +145,11 @@ async def update_news_source(source_id):
     """更新新闻源"""
     try:
         req = await request.get_json()
-        source = NewsSourceService.update_source(source_id=source_id, tenant_id=current_user.id, **req)
-
-        return get_json_result(data={"source": source})
+        try:
+            source = NewsSourceService.update_source(source_id=source_id, tenant_id=current_user.id, **req)
+            return get_json_result(data={"source": source})
+        except ValueError as ve:
+            return get_json_result(code=400, message=str(ve))
 
     except ValueError as e:
         return get_json_result(code=404, message=str(e))
