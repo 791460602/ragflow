@@ -47,11 +47,55 @@ def list_news_sources():
         page_size = int(request.args.get("page_size", 20))
         name = request.args.get("name")
         status = request.args.get("status")
+        source_type = request.args.get("source_type")
+        source_types_param = request.args.get("source_types")
+        source_types = None
+        if source_types_param:
+            source_types = [s.strip() for s in source_types_param.split(',') if s.strip()]
+        elif source_type:
+            source_types = [source_type]
 
-        sources, total = NewsSourceService.get_by_tenant_id(tenant_id=current_user.id, page=page, page_size=page_size, name=name, status=status)
+        sources, total = NewsSourceService.get_by_tenant_id(
+            tenant_id=current_user.id,
+            page=page,
+            page_size=page_size,
+            name=name,
+            status=status,
+            source_type=None if source_types else source_type,
+            source_types=source_types
+        )
 
-        return get_json_result(data={"sources": sources, "total": total, "page": page, "page_size": page_size})
+        groups = []
+        try:
+            group_query = NewsSourceService.model.select(NewsSourceService.model.source_type).where(
+                (NewsSourceService.model.tenant_id == current_user.id) &
+                (NewsSourceService.model.status != 'deleted')
+            ).distinct()
+            groups = [g.source_type for g in group_query if g.source_type]
+        except Exception:
+            groups = []
 
+        return get_json_result(data={"sources": sources, "total": total, "page": page, "page_size": page_size, "groups": groups})
+
+    except Exception as e:
+        return server_error_response(e)
+
+
+@manager.route("/sources/groups", methods=["GET"])  # noqa: F821
+@login_required
+def list_news_source_groups():
+    """按 source_type 返回分组"""
+    try:
+        query = NewsSourceService.model.select().where(
+            (NewsSourceService.model.tenant_id == current_user.id) &
+            (NewsSourceService.model.status != 'deleted')
+        )
+        groups = {}
+        for source in query:
+            g = source.source_type or 'unknown'
+            groups.setdefault(g, []).append(NewsSourceService.to_dict(source))
+        data = [{"group": group, "sources": items} for group, items in groups.items()]
+        return get_json_result(data={"groups": data})
     except Exception as e:
         return server_error_response(e)
 

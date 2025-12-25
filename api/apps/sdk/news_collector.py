@@ -523,6 +523,8 @@ async def _upload_to_knowledgebase(kb_id: str, tenant_id: str, file_path: str, a
         async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
             file_content = await f.read()
 
+        meta_fields = article_data.get("metadata", {}) if isinstance(article_data, dict) else {}
+
         # 准备文档数据
         article_title = (article_data.get("title") or "").strip()
         if not article_title:
@@ -563,6 +565,7 @@ async def _upload_to_knowledgebase(kb_id: str, tenant_id: str, file_path: str, a
                         "suffix": "json",
                         "type": "json",
                         "source_type": "local",
+                        "meta_fields": meta_fields,
                     },
                 )
                 e, doc = DocumentService.get_by_id(document_id)
@@ -591,6 +594,7 @@ async def _upload_to_knowledgebase(kb_id: str, tenant_id: str, file_path: str, a
                 "source_type": "local",
                 "created_by": tenant_id,
                 "tenant_id": tenant_id,
+                "meta_fields": meta_fields,
             }
             doc = DocumentService.insert(doc_data)
 
@@ -688,6 +692,7 @@ async def _async_crawl_from_post_worker(tenant_id: str, source_ids: list, depth:
 
             for page_data in new_articles:
                 content_hash = page_data.get("content_hash")
+                page_data = _enrich_metadata(page_data, source)
                 page_title = _sanitize_filename((page_data.get("title") or "untitled"))
                 timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
                 filename = f"{page_title}_{timestamp}_{content_hash[:16]}.json"
@@ -793,6 +798,8 @@ async def _async_topic_search_worker(
         for page_data in new_articles:
             content_hash = page_data.get("content_hash")
             source_id = page_data.get("source_id")
+            source_stub = next((s for s in sources_from_db if s.get("id") == source_id), {})
+            page_data = _enrich_metadata(page_data, source_stub)
             page_title = _sanitize_filename((page_data.get("title") or "untitled"))
             timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
             filename = f"topic_{page_title}_{timestamp}_{content_hash[:16]}.json"
@@ -870,10 +877,56 @@ def list_news_sources(tenant_id):
         page_size = int(request.args.get("page_size", 20))
         name = request.args.get("name")
         status = request.args.get("status")
+        source_type = request.args.get("source_type")
+        source_types_param = request.args.get("source_types")
+        source_types = None
+        if source_types_param:
+            source_types = [s.strip() for s in source_types_param.split(',') if s.strip()]
+        elif source_type:
+            source_types = [source_type]
 
-        sources, total = NewsSourceService.get_by_tenant_id(tenant_id=tenant_id, page=page, page_size=page_size, name=name, status=status)
-        return get_json_result(data={"sources": sources, "total": total, "page": page, "page_size": page_size})
+        sources, total = NewsSourceService.get_by_tenant_id(
+            tenant_id=tenant_id,
+            page=page,
+            page_size=page_size,
+            name=name,
+            status=status,
+            source_type=None if source_types else source_type,
+            source_types=source_types
+        )
 
+        # 返回当前租户可用的源分组（source_type 列表），便于前端多组点选
+        groups = []
+        try:
+            group_query = NewsSourceService.model.select(NewsSourceService.model.source_type).where(
+                (NewsSourceService.model.tenant_id == tenant_id) &
+                (NewsSourceService.model.status != 'deleted')
+            ).distinct()
+            groups = [g.source_type for g in group_query if g.source_type]
+        except Exception:
+            groups = []
+
+        return get_json_result(data={"sources": sources, "total": total, "page": page, "page_size": page_size, "groups": groups})
+
+    except Exception as e:
+        return server_error_response(e)
+
+
+@manager.route("/news_collector/sources/groups", methods=["GET"])
+@token_required
+def list_news_source_groups(tenant_id):
+    """按 source_type 分组返回源列表"""
+    try:
+        query = NewsSourceService.model.select().where(
+            (NewsSourceService.model.tenant_id == tenant_id) &
+            (NewsSourceService.model.status != 'deleted')
+        )
+        groups = {}
+        for source in query:
+            g = source.source_type or 'unknown'
+            groups.setdefault(g, []).append(NewsSourceService.to_dict(source))
+        data = [{"group": group, "sources": items} for group, items in groups.items()]
+        return get_json_result(data={"groups": data})
     except Exception as e:
         return server_error_response(e)
 
@@ -892,6 +945,32 @@ def create_news_source(tenant_id):
 
         source = NewsSourceService.create_source(tenant_id=tenant_id, user_id=tenant_id, **req)
         return get_json_result(data={"source": source})
+
+    except Exception as e:
+        return server_error_response(e)
+
+
+@manager.route("/news_collector/sources/import", methods=["POST"])
+@token_required
+def import_news_sources(tenant_id):
+    """批量导入新闻源，接收 JSON 数组"""
+    try:
+        req = request.get_json()
+        sources = req if isinstance(req, list) else req.get("sources") if isinstance(req, dict) else None
+        if not sources or not isinstance(sources, list):
+            return get_json_result(code=400, message="请求体需为数组或包含 sources 数组")
+
+        created = []
+        errors = []
+        for idx, src in enumerate(sources):
+            try:
+                if not src.get("name") or not src.get("url"):
+                    raise ValueError("name 和 url 必填")
+                created.append(NewsSourceService.create_source(tenant_id=tenant_id, user_id=tenant_id, **src))
+            except Exception as ex:
+                errors.append({"index": idx, "name": src.get("name"), "error": str(ex)})
+
+        return get_json_result(data={"created": created, "errors": errors})
 
     except Exception as e:
         return server_error_response(e)
@@ -959,18 +1038,41 @@ async def crawl_from_post_api(tenant_id):
     """
     req_data = await request.get_json()
 
-    source_ids = req_data.get("source_ids")
+    source_ids = req_data.get("source_ids") or []
+    source_types = req_data.get("source_types") or []
     depth = int(req_data.get("depth", 2))
     max_pages_per_source = int(req_data.get("max_pages_per_source", 50))
 
-    if not isinstance(source_ids, list) or not source_ids:
-        return get_json_result(code=400, message="请求体必须包含一个名为 'source_ids' 的非空数组。")
+    if isinstance(source_types, str):
+        source_types = [s.strip() for s in source_types.split(',') if s.strip()]
+
+    if not isinstance(source_ids, list):
+        return get_json_result(code=400, message="'source_ids' 必须是数组。")
+
+    if source_types:
+        type_sources = NewsSourceService.get_by_types(tenant_id, source_types)
+        source_ids.extend([s['id'] for s in type_sources])
+
+    # 去重并保持顺序
+    seen = set()
+    resolved_source_ids = []
+    for sid in source_ids:
+        if sid and sid not in seen:
+            seen.add(sid)
+            resolved_source_ids.append(sid)
+
+    if not resolved_source_ids:
+        return get_json_result(code=400, message="请提供 source_ids 或 source_types 中至少一项有效内容。")
 
     try:
-        thread = threading.Thread(target=_background_crawl_from_post_wrapper, args=(tenant_id, source_ids, depth, max_pages_per_source))
+        thread = threading.Thread(target=_background_crawl_from_post_wrapper, args=(tenant_id, resolved_source_ids, depth, max_pages_per_source))
         thread.start()
 
-        return get_json_result(data={"message": f"已成功启动后台即时抓取任务，将从数据库加载并处理 {len(source_ids)} 个新闻源。"})
+        return get_json_result(data={
+            "message": f"已成功启动后台即时抓取任务，将从数据库加载并处理 {len(resolved_source_ids)} 个新闻源。",
+            "source_ids": resolved_source_ids,
+            "source_types": source_types
+        })
 
     except Exception as e:
         traceback.print_exc()
@@ -1003,7 +1105,8 @@ async def topic_search_api(tenant_id):
     """
     req_data = await request.get_json()
 
-    source_ids = req_data.get("source_ids")
+    source_ids = req_data.get("source_ids") or []
+    source_types = req_data.get("source_types") or []
     keywords = req_data.get("keywords")
     max_depth = int(req_data.get("max_depth", 2))
     max_pages_per_source = int(req_data.get("max_pages_per_source", 5))
@@ -1013,11 +1116,27 @@ async def topic_search_api(tenant_id):
     parse = req_data.get("parse", False)
 
     # 参数验证
-    if not source_ids or not isinstance(source_ids, list) or len(source_ids) == 0:
-        return get_json_result(code=400, message="新闻源ID列表 (source_ids) 不能为空，应为非空数组")
+    if isinstance(source_types, str):
+        source_types = [s.strip() for s in source_types.split(',') if s.strip()]
+    if not isinstance(source_ids, list):
+        return get_json_result(code=400, message="'source_ids' 必须是数组")
 
     if not keywords or not isinstance(keywords, list) or len(keywords) == 0:
         return get_json_result(code=400, message="关键词列表 (keywords) 不能为空，应为非空数组")
+
+    if source_types:
+        type_sources = NewsSourceService.get_by_types(tenant_id, source_types)
+        source_ids.extend([s['id'] for s in type_sources])
+
+    seen = set()
+    resolved_source_ids = []
+    for sid in source_ids:
+        if sid and sid not in seen:
+            seen.add(sid)
+            resolved_source_ids.append(sid)
+
+    if not resolved_source_ids:
+        return get_json_result(code=400, message="请提供 source_ids 或 source_types 中至少一项有效内容。")
 
     # 验证知识库（如果指定）
     if kb_id:
@@ -1026,15 +1145,16 @@ async def topic_search_api(tenant_id):
 
     try:
         thread = threading.Thread(
-            target=_background_topic_search_wrapper, args=(tenant_id, source_ids, keywords, max_depth, max_pages_per_source, max_crawl_pages_per_source, score_threshold, kb_id, parse)
+            target=_background_topic_search_wrapper, args=(tenant_id, resolved_source_ids, keywords, max_depth, max_pages_per_source, max_crawl_pages_per_source, score_threshold, kb_id, parse)
         )
         thread.start()
 
         return get_json_result(
             data={
-                "message": f"已成功启动主题搜索任务，关键词: {keywords}，新闻源数: {len(source_ids)}",
+                "message": f"已成功启动主题搜索任务，关键词: {keywords}，新闻源数: {len(resolved_source_ids)}",
                 "params": {
-                    "source_ids": source_ids,
+                    "source_ids": resolved_source_ids,
+                    "source_types": source_types,
                     "keywords": keywords,
                     "max_depth": max_depth,
                     "max_pages_per_source": max_pages_per_source,

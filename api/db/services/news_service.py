@@ -36,7 +36,8 @@ class NewsSourceService(CommonService):
     @classmethod
     @DB.connection_context()
     def get_by_tenant_id(cls, tenant_id: str, page: int = 1, page_size: int = 20, 
-                        name: Optional[str] = None, status: Optional[str] = None):
+                        name: Optional[str] = None, status: Optional[str] = None, source_type: Optional[str] = None,
+                        source_types: Optional[List[str]] = None):
         """根据租户ID获取新闻源列表"""
         
         # 修改: 默认查询条件增加了 status != 'deleted'
@@ -51,6 +52,10 @@ class NewsSourceService(CommonService):
         # 修改: 如果外部传入了 status 参数，则使用外部的，否则默认不显示 deleted
         if status:
             query = query.where(cls.model.status == status)
+        if source_types:
+            query = query.where(cls.model.source_type.in_(source_types))
+        elif source_type:
+            query = query.where(cls.model.source_type == source_type)
             
         query = query.order_by(cls.model.create_time.desc())
         
@@ -78,7 +83,11 @@ class NewsSourceService(CommonService):
             'url': kwargs.get('url'),
             'remark': kwargs.get('remark', ''),
             'status': kwargs.get('status', 'active'),
-            'fetch_config': kwargs.get('fetch_config', {})
+            'fetch_config': kwargs.get('fetch_config', {}),
+            'source_type': kwargs.get('source_type', 'news'),
+            'region': kwargs.get('region'),
+            'issuer': kwargs.get('issuer'),
+            'policy_theme': kwargs.get('policy_theme', [])
         }
         
         source = cls.model.create(**source_data)
@@ -93,7 +102,7 @@ class NewsSourceService(CommonService):
             raise ValueError("News source not found")
             
         update_data = {}
-        for field in ['name', 'url', 'remark', 'status', 'fetch_config']:
+        for field in ['name', 'url', 'remark', 'status', 'fetch_config', 'source_type', 'region', 'issuer', 'policy_theme']:
             if field in kwargs:
                 update_data[field] = kwargs[field]
                 
@@ -144,6 +153,18 @@ class NewsSourceService(CommonService):
             result['fetch_config'] = {}
             
         return result
+
+    @classmethod
+    @DB.connection_context()
+    def get_by_types(cls, tenant_id: str, source_types: List[str]) -> List[dict]:
+        if not source_types:
+            return []
+        query = cls.model.select().where(
+            (cls.model.tenant_id == tenant_id) &
+            (cls.model.status != 'deleted') &
+            (cls.model.source_type.in_(source_types))
+        )
+        return [cls.to_dict(source) for source in query]
 
 
 class NewsTaskService(CommonService):
