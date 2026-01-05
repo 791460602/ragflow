@@ -482,6 +482,7 @@ class NewsContentService(CommonService):
                 "summary": article_data.get("summary"),
                 "content_hash": content_hash,
                 "word_count": len(content_text),
+                "metadata": article_data.get("metadata", {}),
             }
 
             # 3. 创建记录

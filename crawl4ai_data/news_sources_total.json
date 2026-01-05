@@ -2,191 +2,211 @@
   {
     "name": "国家能源局",
     "url": "http://www.nea.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"国家"
   },
   {
     "name": "国家发展和改革委员会",
     "url": "https://www.ndrc.gov.cn/",
-    "type":"政策来源"
-  },
-  {
-    "name": "国家电网公司 (电子商务平台)",
-    "url": "https://ecp.sgcc.com.cn/",
-    "type":"政策来源"
-  },
-  {
-    "name": "中国南方电网",
-    "url": "http://www.csg.cn/",
-    "type":"政策来源"
-  },
-  {
-    "name": "中国电力企业联合会",
-    "url": "https://www.cec.org.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"国家"
   },
   {
     "name": "北京市发展和改革委员会",
     "url": "http://fgw.beijing.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"北京"
   },
   {
     "name": "天津市发展和改革委员会",
     "url": "http://fzgg.tj.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"天津"
   },
   {
     "name": "上海市发展和改革委员会",
     "url": "https://fgw.sh.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"上海"
   },
   {
     "name": "重庆市发展和改革委员会",
     "url": "https://fzggw.cq.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"重庆"
   },
   {
     "name": "河北省发展和改革委员会",
     "url": "http://hbdrc.hebei.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"河北"
   },
   {
     "name": "山西省能源局",
     "url": "https://nyj.shanxi.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"山西"
   },
   {
     "name": "辽宁省发展和改革委员会",
     "url": "http://fgw.ln.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"辽宁"
   },
   {
     "name": "吉林省能源局",
     "url": "http://nyj.jl.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"吉林"
   },
   {
     "name": "黑龙江省发展和改革委员会",
     "url": "http://drc.hlj.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"黑龙江"
   },
   {
     "name": "江苏省发展和改革委员会",
     "url": "https://fzggw.jiangsu.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"江苏"
   },
   {
     "name": "浙江省发展和改革委员会",
     "url": "https://fzggw.zj.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"浙江"
   },
   {
     "name": "安徽省发展和改革委员会",
     "url": "https://fzggw.ah.gov.cn/jgsz/wgdw/snyj/index.html",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"安徽"
   },
   {
     "name": "福建省发展和改革委员会",
     "url": "http://fgw.fujian.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"福建"
   },
   {
     "name": "江西省发展和改革委员会",
     "url": "http://drc.jiangxi.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"江西"
   },
   {
     "name": "山东省能源局",
     "url": "http://nyj.shandong.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"山东"
   },
   {
     "name": "河南省发展和改革委员会",
     "url": "https://fgw.henan.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"河南"
   },
   {
     "name": "湖北省发展和改革委员会",
     "url": "https://fgw.hubei.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"湖北"
   },
   {
     "name": "湖南省发展和改革委员会",
     "url": "https://fgw.hunan.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"湖南"
   },
   {
     "name": "广东省发展和改革委员会",
     "url": "https://drc.gd.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"广东"
   },
   {
     "name": "海南省发展和改革委员会",
     "url": "http://plan.hainan.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"海南"
   },
   {
     "name": "四川省发展和改革委员会",
     "url": "http://fgw.sc.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"四川"
   },
   {
     "name": "贵州省能源局",
     "url": "http://nyj.guizhou.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"贵州"
   },
   {
     "name": "云南省能源局",
     "url": "http://nyj.yn.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"云南"
   },
   {
     "name": "陕西省发展和改革委员会",
     "url": "http://sndrc.shaanxi.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"陕西"
   },
   {
     "name": "甘肃省发展和改革委员会",
     "url": "http://fzgg.gansu.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"甘肃"
   },
   {
     "name": "青海省发展和改革委员会",
     "url": "http://fgw.qinghai.gov.cn/index.html?chanldesc=3&?pc",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"青海"
   },
   {
     "name": "内蒙古自治区能源局",
     "url": "http://nyj.nmg.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"内蒙古"
   },
   {
     "name": "广西壮族自治区发改委",
     "url": "http://fgw.gxzf.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"广西"
   },
   {
     "name": "西藏自治区发改委",
     "url": "http://drc.xizang.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"西藏"
   },
   {
     "name": "宁夏回族自治区发改委",
     "url": "https://fzggw.nx.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"宁夏"
   },
   {
     "name": "新疆维吾尔自治区发改委",
     "url": "http://xjdrc.xinjiang.gov.cn/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"新疆"
   },
   {
     "name": "机电工程署 (香港)",
     "url": "https://www.emsd.gov.hk/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"香港"
   },
   {
     "name": "环境保护局 (澳门)",
     "url": "https://www.dspa.gov.mo/",
-    "type":"政策来源"
+    "source_type":"policy",
+    "region":"澳门"
   }
 ]

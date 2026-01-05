@@ -713,7 +713,7 @@ class TopicCrawler:
         print(f"[TopicCrawler] 目标: 收集 {max_pages} 篇政策内容")
         print(f"[TopicCrawler] 限制: 最多爬取 {max_crawl_pages} 个页面")
         print("[TopicCrawler] 策略: 智能BestFirst（优先爬取政策相关链接）")
-        print("[TopicCrawler] 超时设置: 45秒/页，忽略导航错误")
+        print("[TopicCrawler] 超时设置: 8秒/页")
 
         # ===== 【智能爬取】使用 BestFirst 策略 + 关键词评分 =====
 
@@ -773,6 +773,16 @@ class TopicCrawler:
                 "xw",
                 "dt",
                 "zwgk",  # 新闻、动态、政务公开
+                # 【新增】地方政府网站常见URL模式
+                "gzdt",
+                "fzggdt",
+                "zcjd",
+                "zcwj",
+                "gfxwj",  # 工作动态、政策解读、政策文件
+                "zfxxgk",
+                "yjzj",
+                "ztzl",
+                "bmxx",  # 政府信息公开、预警专栏、专题专栏
                 # 组合关键词
                 "电力市场",
                 "能源政策",
@@ -780,7 +790,7 @@ class TopicCrawler:
                 "市场交易",
             ]
             + keywords,  # 加上用户提供的搜索关键词
-            weight=0.8,  # 关键词权重（0.0-1.0），越高越重要
+            weight=0.3,  # 关键词权重（0.0-1.0），越高越重要
         )
 
         # 2. 内容相关性过滤器：过滤无关链接
@@ -825,12 +835,11 @@ class TopicCrawler:
                 max_pages=max_crawl_pages,  # 限制总页面数
                 url_scorer=keyword_scorer,  # 使用关键词评分器
                 filter_chain=filter_chain,  # 应用过滤链
-                ignore_nav_errors=True,  # 【新增】忽略导航错误，跳过无法访问的页面
             ),
             scraping_strategy=LXMLWebScrapingStrategy(),
             stream=False,  # 改回批量模式，stream 模式太不稳定
             verbose=True,
-            page_timeout=45000,  # 【新增】页面超时45秒（降低到45秒，加快失败页面的跳过）
+            page_timeout=8000,  # 页面超时8秒（适合大规模爬取）
             wait_until="commit",  # 【新增】改为更宽松的等待策略（commit比domcontentloaded更快）
         )
 

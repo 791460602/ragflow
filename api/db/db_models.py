@@ -1193,6 +1193,12 @@ class NewsContent(DataBaseModel):
     tags = JSONField(null=False, default=[], help_text="新闻标签")
     summary = TextField(null=True, help_text="新闻摘要")
 
+    # 内容存储
+    content = TextField(null=True, help_text="新闻正文内容")
+
+    # 扩展元数据（存储 source_type, region, issuer, policy_theme 等）
+    metadata = JSONField(null=False, default={}, help_text="扩展元数据")
+
     # 内容特征
     content_hash = CharField(max_length=64, null=True, help_text="内容哈希值（用于去重）", index=True)
     word_count = IntegerField(default=0, help_text="字数统计")
