@@ -114,3 +114,7 @@ RAGFlow supports switching between Elasticsearch (default) and Infinity:
 - Docker & Docker Compose
 - uv package manager
 - 16GB+ RAM, 50GB+ disk space
+- https://docs.crawl4ai.com/，这是crawl4ai的帮助文档
+- 这个工程在windows系统下wsl2，ubuntu系统运行，所以不要直接尝试在这个终端运行
+- 重点关注./api文件夹
+- 重点关注./crawl4ai_data/readme_crawl4ai.md这是我负责工作的总结

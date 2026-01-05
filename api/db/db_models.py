@@ -251,19 +251,13 @@ class RetryingPooledMySQLDatabase(PooledMySQLDatabase):
                 return super().execute_sql(sql, params, commit)
             except (OperationalError, InterfaceError) as e:
                 error_codes = [2013, 2006]
-                error_messages = ['', 'Lost connection']
-                should_retry = (
-                    (hasattr(e, 'args') and e.args and e.args[0] in error_codes) or
-                    (str(e) in error_messages) or
-                    (hasattr(e, '__class__') and e.__class__.__name__ == 'InterfaceError')
-                )
+                error_messages = ["", "Lost connection"]
+                should_retry = (hasattr(e, "args") and e.args and e.args[0] in error_codes) or (str(e) in error_messages) or (hasattr(e, "__class__") and e.__class__.__name__ == "InterfaceError")
 
                 if should_retry and attempt < self.max_retries:
-                    logging.warning(
-                        f"Database connection issue (attempt {attempt+1}/{self.max_retries}): {e}"
-                    )
+                    logging.warning(f"Database connection issue (attempt {attempt + 1}/{self.max_retries}): {e}")
                     self._handle_connection_loss()
-                    time.sleep(self.retry_delay * (2 ** attempt))
+                    time.sleep(self.retry_delay * (2**attempt))
                 else:
                     logging.error(f"DB execution failure: {e}")
                     raise
@@ -289,20 +283,14 @@ class RetryingPooledMySQLDatabase(PooledMySQLDatabase):
                 return super().begin()
             except (OperationalError, InterfaceError) as e:
                 error_codes = [2013, 2006]
-                error_messages = ['', 'Lost connection']
+                error_messages = ["", "Lost connection"]
 
-                should_retry = (
-                    (hasattr(e, 'args') and e.args and e.args[0] in error_codes) or
-                    (str(e) in error_messages) or
-                    (hasattr(e, '__class__') and e.__class__.__name__ == 'InterfaceError')
-                )
+                should_retry = (hasattr(e, "args") and e.args and e.args[0] in error_codes) or (str(e) in error_messages) or (hasattr(e, "__class__") and e.__class__.__name__ == "InterfaceError")
 
                 if should_retry and attempt < self.max_retries:
-                    logging.warning(
-                        f"Lost connection during transaction (attempt {attempt+1}/{self.max_retries})"
-                    )
+                    logging.warning(f"Lost connection during transaction (attempt {attempt + 1}/{self.max_retries})")
                     self._handle_connection_loss()
-                    time.sleep(self.retry_delay * (2 ** attempt))
+                    time.sleep(self.retry_delay * (2**attempt))
                 else:
                     raise
         return None
@@ -326,17 +314,14 @@ class RetryingPooledPostgresqlDatabase(PooledPostgresqlDatabase):
                 # 08006: connection_failure
                 # 08003: connection_does_not_exist
                 # 08000: connection_exception
-                error_messages = ['connection', 'server closed', 'connection refused',
-                                'no connection to the server', 'terminating connection']
+                error_messages = ["connection", "server closed", "connection refused", "no connection to the server", "terminating connection"]
 
                 should_retry = any(msg in str(e).lower() for msg in error_messages)
 
                 if should_retry and attempt < self.max_retries:
-                    logging.warning(
-                        f"PostgreSQL connection issue (attempt {attempt+1}/{self.max_retries}): {e}"
-                    )
+                    logging.warning(f"PostgreSQL connection issue (attempt {attempt + 1}/{self.max_retries}): {e}")
                     self._handle_connection_loss()
-                    time.sleep(self.retry_delay * (2 ** attempt))
+                    time.sleep(self.retry_delay * (2**attempt))
                 else:
                     logging.error(f"PostgreSQL execution failure: {e}")
                     raise
@@ -359,17 +344,14 @@ class RetryingPooledPostgresqlDatabase(PooledPostgresqlDatabase):
             try:
                 return super().begin()
             except (OperationalError, InterfaceError) as e:
-                error_messages = ['connection', 'server closed', 'connection refused',
-                                'no connection to the server', 'terminating connection']
+                error_messages = ["connection", "server closed", "connection refused", "no connection to the server", "terminating connection"]
 
                 should_retry = any(msg in str(e).lower() for msg in error_messages)
 
                 if should_retry and attempt < self.max_retries:
-                    logging.warning(
-                        f"PostgreSQL connection lost during transaction (attempt {attempt+1}/{self.max_retries})"
-                    )
+                    logging.warning(f"PostgreSQL connection lost during transaction (attempt {attempt + 1}/{self.max_retries})")
                     self._handle_connection_loss()
-                    time.sleep(self.retry_delay * (2 ** attempt))
+                    time.sleep(self.retry_delay * (2**attempt))
                 else:
                     raise
         return None
@@ -392,13 +374,11 @@ class BaseDataBase:
         db_name = database_config.pop("name")
 
         pool_config = {
-            'max_retries': 5,
-            'retry_delay': 1,
+            "max_retries": 5,
+            "retry_delay": 1,
         }
         database_config.update(pool_config)
-        self.database_connection = PooledDatabase[settings.DATABASE_TYPE.upper()].value(
-            db_name, **database_config
-        )
+        self.database_connection = PooledDatabase[settings.DATABASE_TYPE.upper()].value(db_name, **database_config)
         # self.database_connection = PooledDatabase[settings.DATABASE_TYPE.upper()].value(db_name, **database_config)
         logging.info("init database on cluster mode successfully")
 
@@ -1073,9 +1053,9 @@ class Connector2Kb(DataBaseModel):
 
 
 class DateTimeTzField(CharField):
-    field_type = 'VARCHAR'
+    field_type = "VARCHAR"
 
-    def db_value(self, value: datetime|None) -> str|None:
+    def db_value(self, value: datetime | None) -> str | None:
         if value is not None:
             if value.tzinfo is not None:
                 return value.isoformat()
@@ -1083,11 +1063,12 @@ class DateTimeTzField(CharField):
                 return value.replace(tzinfo=timezone.utc).isoformat()
         return value
 
-    def python_value(self, value: str|None) -> datetime|None:
+    def python_value(self, value: str | None) -> datetime | None:
         if value is not None:
             dt = datetime.fromisoformat(value)
             if dt.tzinfo is None:
                 import pytz
+
                 return dt.replace(tzinfo=pytz.UTC)
             return dt
         return value
@@ -1112,175 +1093,110 @@ class SyncLogs(DataBaseModel):
     class Meta:
         db_table = "sync_logs"
 
+
 # ======================
 # 新闻收集器数据模型
 # ======================
 
+
 class NewsSource(DataBaseModel):
     """新闻源模型"""
+
     id = CharField(max_length=32, primary_key=True)
-    name = CharField(max_length=128, null=False, help_text="新闻源名称", index=True)
-    url = TextField(null=False, help_text="新闻源URL")
+    name = CharField(max_length=64, null=False, help_text="网站名称", index=True)
+    url = TextField(null=False, help_text="网站URL")
+    type = CharField(max_length=64, null=False, help_text="网站种类", index=True)
     remark = TextField(null=True, help_text="备注信息")
-    status = CharField(max_length=16, null=False, default="active", help_text="状态: active|inactive", index=True)
+    status = CharField(max_length=16, null=False, default="active", help_text="状态", index=True)
+    CCS = CharField(max_length=16, null=False, default="inactive", help_text="CCS状态", index=True)
     user_id = CharField(max_length=32, null=True, help_text="创建用户ID", index=True)
     tenant_id = CharField(max_length=32, null=False, help_text="租户ID", index=True)
-    
-    # 抓取配置
-    fetch_config = JSONField(null=False, default={
-        "selector": None,  # CSS选择器
-        "encoding": "utf-8",  # 页面编码
-        "timeout": 30,  # 超时时间
-        "headers": {}  # 请求头
-    }, help_text="抓取配置")
-    
+
+    # CCS配置
+    fetch_config = JSONField(
+        null=False,
+        default={
+            "selector": None,  # CSS选择器
+            "encoding": "utf-8",  # 页面编码
+            "timeout": 30,  # 超时时间
+            "headers": {},  # 请求头
+        },
+        help_text="CCS配置",
+    )
+
     # 统计信息
     total_articles = IntegerField(default=0, help_text="总文章数")
     last_fetch_time = BigIntegerField(null=True, help_text="最后抓取时间戳", index=True)
-    
+
     def __str__(self):
         return self.name
-    
+
     class Meta:
         db_table = "news_source"
 
 
 class NewsTask(DataBaseModel):
     """新闻抓取任务模型"""
+
     id = CharField(max_length=32, primary_key=True)
     task_name = CharField(max_length=128, null=False, help_text="任务名称", index=True)
     kb_id = CharField(max_length=32, null=False, help_text="关联知识库ID", index=True)
     user_id = CharField(max_length=32, null=True, help_text="创建用户ID", index=True)
     tenant_id = CharField(max_length=32, null=False, help_text="租户ID", index=True)
-    
+
     # 任务配置
     source_ids = JSONField(null=False, default=[], help_text="新闻源ID列表")
     auto_parse = BooleanField(default=True, help_text="是否自动解析到知识库")
     max_articles_per_source = IntegerField(default=10, help_text="每个源最大抓取文章数")
 
-    
     # 任务状态
-    status = CharField(max_length=16, null=False, default="pending", 
-                      help_text="状态: pending|running|completed|failed", index=True)
+    status = CharField(max_length=16, null=False, default="pending", help_text="状态: pending|running|completed|failed", index=True)
     last_run_time = BigIntegerField(null=True, help_text="最后运行时间戳", index=True)
-    
+
     # 统计信息
-    statistics = JSONField(null=False, default={
-        "total_articles": 0,
-        "success_count": 0,
-        "failed_count": 0,
-        "skipped_count": 0
-    }, help_text="执行统计")
-    
+    statistics = JSONField(null=False, default={"total_articles": 0, "success_count": 0, "failed_count": 0, "skipped_count": 0}, help_text="执行统计")
+
     # 错误信息
     error_message = TextField(null=True, help_text="错误信息")
-    
+
     def __str__(self):
         return self.task_name
-    
+
     class Meta:
         db_table = "news_task"
 
 
 class NewsContent(DataBaseModel):
     """新闻内容模型 - 优化版本，直接关联Document"""
+
     id = CharField(max_length=32, primary_key=True)
     task_id = CharField(max_length=32, null=False, help_text="关联任务ID", index=True)
     source_id = CharField(max_length=32, null=False, help_text="新闻源ID", index=True)
     document_id = CharField(max_length=32, null=True, help_text="关联的Document ID", index=True)
     user_id = CharField(max_length=32, null=True, help_text="用户ID", index=True)
     tenant_id = CharField(max_length=32, null=False, help_text="租户ID", index=True)
-    
+
     # 新闻元数据（不重复存储内容）
     original_url = TextField(null=False, help_text="原文URL")
     title = CharField(max_length=1023, null=True, help_text="标题")
     author = CharField(max_length=128, null=True, help_text="作者")
     publish_time = BigIntegerField(null=True, help_text="发布时间戳", index=True)
     fetch_time = BigIntegerField(null=False, help_text="抓取时间戳", index=True)
-    
+
     # 新闻特有字段
     category = CharField(max_length=64, null=True, help_text="新闻分类", index=True)
     tags = JSONField(null=False, default=[], help_text="新闻标签")
     summary = TextField(null=True, help_text="新闻摘要")
-    
+
     # 内容特征
     content_hash = CharField(max_length=64, null=True, help_text="内容哈希值（用于去重）", index=True)
     word_count = IntegerField(default=0, help_text="字数统计")
-    
+
     def __str__(self):
         return f"News_{self.id}"
-    
+
     class Meta:
         db_table = "news_content"
-class Connector(DataBaseModel):
-    id = CharField(max_length=32, primary_key=True)
-    tenant_id = CharField(max_length=32, null=False, index=True)
-    name = CharField(max_length=128, null=False, help_text="Search name", index=False)
-    source = CharField(max_length=128, null=False, help_text="Data source", index=True)
-    input_type = CharField(max_length=128, null=False, help_text="poll/event/..", index=True)
-    config = JSONField(null=False, default={})
-    refresh_freq = IntegerField(default=0, index=False)
-    prune_freq = IntegerField(default=0, index=False)
-    timeout_secs = IntegerField(default=3600, index=False)
-    indexing_start = DateTimeField(null=True, index=True)
-    status = CharField(max_length=16, null=True, help_text="schedule", default="schedule", index=True)
-
-    def __str__(self):
-        return self.name
-
-    class Meta:
-        db_table = "connector"
-
-
-class Connector2Kb(DataBaseModel):
-    id = CharField(max_length=32, primary_key=True)
-    connector_id = CharField(max_length=32, null=False, index=True)
-    kb_id = CharField(max_length=32, null=False, index=True)
-    auto_parse = CharField(max_length=1, null=False, default="1", index=False)
-
-    class Meta:
-        db_table = "connector2kb"
-
-
-class DateTimeTzField(CharField):
-    field_type = 'VARCHAR'
-
-    def db_value(self, value: datetime|None) -> str|None:
-        if value is not None:
-            if value.tzinfo is not None:
-                return value.isoformat()
-            else:
-                return value.replace(tzinfo=timezone.utc).isoformat()
-        return value
-
-    def python_value(self, value: str|None) -> datetime|None:
-        if value is not None:
-            dt = datetime.fromisoformat(value)
-            if dt.tzinfo is None:
-                import pytz
-                return dt.replace(tzinfo=pytz.UTC)
-            return dt
-        return value
-
-
-class SyncLogs(DataBaseModel):
-    id = CharField(max_length=32, primary_key=True)
-    connector_id = CharField(max_length=32, index=True)
-    status = CharField(max_length=128, null=False, help_text="Processing status", index=True)
-    from_beginning = CharField(max_length=1, null=True, help_text="", default="0", index=False)
-    new_docs_indexed = IntegerField(default=0, index=False)
-    total_docs_indexed = IntegerField(default=0, index=False)
-    docs_removed_from_index = IntegerField(default=0, index=False)
-    error_msg = TextField(null=False, help_text="process message", default="")
-    error_count = IntegerField(default=0, index=False)
-    full_exception_trace = TextField(null=True, help_text="process message", default="")
-    time_started = DateTimeField(null=True, index=True)
-    poll_range_start = DateTimeTzField(max_length=255, null=True, index=True)
-    poll_range_end = DateTimeTzField(max_length=255, null=True, index=True)
-    kb_id = CharField(max_length=32, null=False, index=True)
-
-    class Meta:
-        db_table = "sync_logs"
 
 
 def migrate_db():
