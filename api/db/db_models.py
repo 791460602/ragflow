@@ -1103,14 +1103,19 @@ class NewsSource(DataBaseModel):
     """新闻源模型"""
 
     id = CharField(max_length=32, primary_key=True)
-    name = CharField(max_length=64, null=False, help_text="网站名称", index=True)
+    name = CharField(max_length=128, null=False, help_text="网站名称", index=True)
     url = TextField(null=False, help_text="网站URL")
-    type = CharField(max_length=64, null=False, help_text="网站种类", index=True)
     remark = TextField(null=True, help_text="备注信息")
     status = CharField(max_length=16, null=False, default="active", help_text="状态", index=True)
     CCS = CharField(max_length=16, null=False, default="inactive", help_text="CCS状态", index=True)
     user_id = CharField(max_length=32, null=True, help_text="创建用户ID", index=True)
     tenant_id = CharField(max_length=32, null=False, help_text="租户ID", index=True)
+
+    # 业务分组与来源元信息
+    source_type = CharField(max_length=32, null=False, default="news", help_text="源类型: policy|news|other", index=True)
+    region = CharField(max_length=64, null=True, help_text="所属地区，如广东省/国家", index=True)
+    issuer = CharField(max_length=128, null=True, help_text="发布机构归一化名称，如广东省发展和改革委员会", index=True)
+    policy_theme = JSONField(null=False, default=[], help_text="该源主打的主题标签列表，如[分时电价]")
 
     # CCS配置
     fetch_config = JSONField(

@@ -16,7 +16,7 @@
 import re
 import traceback
 from datetime import datetime
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, List
 
 from api.db.db_models import NewsSource, NewsTask, NewsContent
 from api.db.services.common_service import CommonService
@@ -27,6 +27,7 @@ from api.db.db_models import DB
 
 # 新增: 导入 hashlib 用于生成内容哈希值
 import hashlib
+import json
 
 
 class NewsSourceService(CommonService):
@@ -34,7 +35,9 @@ class NewsSourceService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def get_by_tenant_id(cls, tenant_id: str, page: int = 1, page_size: int = 20, name: Optional[str] = None, status: Optional[str] = None):
+    def get_by_tenant_id(
+        cls, tenant_id: str, page: int = 1, page_size: int = 20, name: Optional[str] = None, status: Optional[str] = None, source_type: Optional[str] = None, source_types: Optional[List[str]] = None
+    ):
         """根据租户ID获取新闻源列表"""
 
         # 修改: 默认查询条件增加了 status != 'deleted'
@@ -46,6 +49,10 @@ class NewsSourceService(CommonService):
         # 修改: 如果外部传入了 status 参数，则使用外部的，否则默认不显示 deleted
         if status:
             query = query.where(cls.model.status == status)
+        if source_types:
+            query = query.where(cls.model.source_type.in_(source_types))
+        elif source_type:
+            query = query.where(cls.model.source_type == source_type)
 
         query = query.order_by(cls.model.create_time.desc())
 
@@ -66,20 +73,43 @@ class NewsSourceService(CommonService):
         if user_id is None:
             user_id = tenant_id
 
+        st = kwargs.get("source_type", "unknown")
+
+        policy_theme = kwargs.get("policy_theme", [])
+        if isinstance(policy_theme, str):
+            try:
+                policy_theme = json.loads(policy_theme)
+            except Exception:
+                # 单字符串视为单元素列表
+                policy_theme = [policy_theme]
+        if policy_theme is None:
+            policy_theme = []
+        if not isinstance(policy_theme, list):
+            raise ValueError("policy_theme must be a list")
+
+        region = kwargs.get("region")
+        if region is not None and not isinstance(region, str):
+            raise ValueError("region must be a string")
+
+        issuer = kwargs.get("issuer")
+        if issuer is not None and not isinstance(issuer, str):
+            raise ValueError("issuer must be a string")
+
         source_data = {
             "id": source_id,
             "tenant_id": tenant_id,
             "user_id": user_id,
             "name": kwargs.get("name"),
             "url": kwargs.get("url"),
-            "type": kwargs.get("type"),
             "remark": kwargs.get("remark", ""),
             "status": kwargs.get("status", "active"),
             "fetch_config": kwargs.get("fetch_config", {}),
-            "CCS": kwargs.get("CCS", "inactive"),
+            "source_type": st,
+            "region": region,
+            "issuer": issuer,
+            "policy_theme": policy_theme,
         }
 
-        # 创建数据库记录
         source = cls.model.create(**source_data)
         return cls.to_dict(source)
 
@@ -91,7 +121,38 @@ class NewsSourceService(CommonService):
         if not source or source.tenant_id != tenant_id:
             raise ValueError("News source not found")
 
+        # 如果传入需要更新的字段, 做基本校验
         update_data = {}
+        allowed_types = {"policy", "news", "other"}
+        if "source_type" in kwargs:
+            st = kwargs.get("source_type")
+            if st not in allowed_types:
+                raise ValueError(f"Invalid source_type: {st}. Allowed: {sorted(list(allowed_types))}")
+            update_data["source_type"] = st
+
+        if "policy_theme" in kwargs:
+            pt = kwargs.get("policy_theme")
+            if isinstance(pt, str):
+                try:
+                    pt = json.loads(pt)
+                except Exception:
+                    pt = [pt]
+            if pt is None:
+                pt = []
+            if not isinstance(pt, list):
+                raise ValueError("policy_theme must be a list")
+            update_data["policy_theme"] = pt
+
+        if "region" in kwargs:
+            if kwargs.get("region") is not None and not isinstance(kwargs.get("region"), str):
+                raise ValueError("region must be a string")
+            update_data["region"] = kwargs.get("region")
+
+        if "issuer" in kwargs:
+            if kwargs.get("issuer") is not None and not isinstance(kwargs.get("issuer"), str):
+                raise ValueError("issuer must be a string")
+            update_data["issuer"] = kwargs.get("issuer")
+
         for field in ["name", "url", "remark", "status", "fetch_config"]:
             if field in kwargs:
                 update_data[field] = kwargs[field]
@@ -139,6 +200,14 @@ class NewsSourceService(CommonService):
             result["fetch_config"] = {}
 
         return result
+
+    @classmethod
+    @DB.connection_context()
+    def get_by_types(cls, tenant_id: str, source_types: List[str]) -> List[dict]:
+        if not source_types:
+            return []
+        query = cls.model.select().where((cls.model.tenant_id == tenant_id) & (cls.model.status != "deleted") & (cls.model.source_type.in_(source_types)))
+        return [cls.to_dict(source) for source in query]
 
 
 class NewsTaskService(CommonService):
