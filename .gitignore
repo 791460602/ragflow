@@ -31,6 +31,8 @@ docker/ragflow-logs/
 /logs
 rag/res/deepdoc
 
+CLAUDE.md
+
 # Exclude sdk generated files
 sdk/python/ragflow.egg-info/
 sdk/python/build/

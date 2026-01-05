@@ -31,6 +31,7 @@ from api.db.services.document_service import DocumentService
 from api.db.services.file_service import FileService
 from common.misc_utils import get_uuid
 from common import settings
+from common.constants import RetCode
 from datetime import datetime
 import os
 import traceback
@@ -45,11 +46,12 @@ import hashlib
 import re
 import aiofiles
 from typing import List
+import aiohttp
 
-# 从 crawl4ai.deep_crawling 导入 BFS 策略（替换 BestFirst）
-from crawl4ai.deep_crawling import BFSDeepCrawlStrategy
+# 【智能爬取】导入 BestFirst 策略和评分器
+from crawl4ai.deep_crawling import BestFirstCrawlingStrategy
+from crawl4ai.deep_crawling.scorers import KeywordRelevanceScorer
 from crawl4ai.deep_crawling.filters import FilterChain, ContentTypeFilter
-
 
 
 # =================================================================================
@@ -259,20 +261,359 @@ class ChineseContentScorer:
 
 
 # =================================================================================
+# PolicyFeatureDetector 类 - 政策文档特征检测器
+# =================================================================================
+class PolicyFeatureDetector:
+    """检测页面是否为电力能源政策文档
+
+    识别特征：
+    1. 标题包含政策关键词（通知、文件、政策、办法等）
+    2. 内容包含能源电力关键词
+    3. 包含文号格式（如：发改能源〔2024〕123号）
+    4. 包含附件下载链接
+    """
+
+    # 政策文档类型关键词
+    POLICY_TYPE_KEYWORDS = [
+        "通知",
+        "文件",
+        "政策",
+        "办法",
+        "规定",
+        "意见",
+        "方案",
+        "规划",
+        "决定",
+        "批复",
+        "公告",
+        "函",
+        "指导",
+        "措施",
+        "制度",
+        "条例",
+        "纲要",
+        "指南",
+        "标准",
+        "细则",
+        "暂行",
+        "试行",
+    ]
+
+    # 能源电力相关关键词
+    ENERGY_KEYWORDS = [
+        "电力",
+        "能源",
+        "电网",
+        "电价",
+        "供电",
+        "用电",
+        "发电",
+        "输电",
+        "配电",
+        "售电",
+        "电量",
+        "电费",
+        "电力市场",
+        "现货",
+        "辅助服务",
+        "可再生能源",
+        "新能源",
+        "光伏",
+        "风电",
+        "储能",
+        "电站",
+        "变电",
+        "输变电",
+        "电力系统",
+        "电力调度",
+        "电力交易",
+        "电力改革",
+        "电力规划",
+        "电力建设",
+        "电力监管",
+        "电力安全",
+        "节能减排",
+    ]
+
+    # 发文单位关键词
+    ISSUER_KEYWORDS = [
+        "发改委",
+        "发展改革委",
+        "国家发展改革委",
+        "国家能源局",
+        "能源局",
+        "电监会",
+        "能监办",
+        "国务院",
+        "工信部",
+        "住建部",
+        "财政部",
+        "国家电网",
+        "南方电网",
+        "电力公司",
+        "省政府",
+        "市政府",
+    ]
+
+    # 文号正则表达式（匹配如：发改能源〔2024〕123号）
+    DOC_NUMBER_PATTERNS = [
+        re.compile(r"[〔\[]?\d{4}[〕\]]\s?\d{1,4}\s?号"),  # 〔2024〕123号
+        re.compile(r"第\s?\d{1,4}\s?号"),  # 第123号
+        re.compile(r"\d{4}年第\d{1,4}号"),  # 2024年第123号
+    ]
+
+    # 附件相关关键词
+    ATTACHMENT_KEYWORDS = ["附件", "下载", "文件下载", "政策原文", "解读", "全文"]
+
+    def __init__(self):
+        pass
+
+    def detect(self, html: str, title: str, content: str, url: str = "") -> dict:
+        """检测是否为政策文档
+
+        返回:
+        {
+            'is_policy': bool,          # 是否为政策文档
+            'score': float,             # 政策特征分数 (0-1)
+            'features': {               # 识别到的特征
+                'has_policy_type': bool,
+                'has_energy_keywords': bool,
+                'has_doc_number': bool,
+                'has_issuer': bool,
+                'has_attachment': bool,
+                'doc_number': str or None,
+                'matched_energy_keywords': list
+            }
+        }
+        """
+        features = {"has_policy_type": False, "has_energy_keywords": False, "has_doc_number": False, "has_issuer": False, "has_attachment": False, "doc_number": None, "matched_energy_keywords": []}
+
+        # 1. 检测标题中的政策类型关键词
+        for keyword in self.POLICY_TYPE_KEYWORDS:
+            if keyword in title:
+                features["has_policy_type"] = True
+                break
+
+        # 2. 检测能源电力关键词
+        full_text = title + " " + content
+        for keyword in self.ENERGY_KEYWORDS:
+            if keyword in full_text:
+                features["has_energy_keywords"] = True
+                features["matched_energy_keywords"].append(keyword)
+
+        # 3. 检测文号
+        for pattern in self.DOC_NUMBER_PATTERNS:
+            match = pattern.search(full_text[:500])  # 只搜索前500字符
+            if match:
+                features["has_doc_number"] = True
+                features["doc_number"] = match.group(0)
+                break
+
+        # 4. 检测发文单位
+        for keyword in self.ISSUER_KEYWORDS:
+            if keyword in full_text[:300]:  # 只搜索前300字符
+                features["has_issuer"] = True
+                break
+
+        # 5. 检测附件链接（从HTML中）
+        for keyword in self.ATTACHMENT_KEYWORDS:
+            if keyword in html:
+                features["has_attachment"] = True
+                break
+
+        # 计算政策特征分数
+        score = 0.0
+        if features["has_policy_type"]:
+            score += 0.3
+        if features["has_energy_keywords"]:
+            score += 0.3
+        if features["has_doc_number"]:
+            score += 0.2
+        if features["has_issuer"]:
+            score += 0.1
+        if features["has_attachment"]:
+            score += 0.1
+
+        # 判定为政策文档的条件：
+        # 1. 有政策类型关键词 + 有能源关键词，或
+        # 2. 有文号 + 有能源关键词
+        is_policy = (features["has_policy_type"] and features["has_energy_keywords"]) or (features["has_doc_number"] and features["has_energy_keywords"])
+
+        return {"is_policy": is_policy, "score": score, "features": features}
+
+
+# =================================================================================
+# AttachmentDownloader 类 - 附件下载器
+# =================================================================================
+class AttachmentDownloader:
+    """检测和下载政策附件"""
+
+    # 支持的附件格式
+    ATTACHMENT_EXTENSIONS = [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".zip", ".rar"]
+
+    # 附件链接关键词
+    ATTACHMENT_LINK_KEYWORDS = ["附件", "下载", "文件", "政策", "原文", "全文"]
+
+    def __init__(self):
+        pass
+
+    async def find_attachments(self, html: str, base_url: str) -> List[dict]:
+        """从HTML中查找附件链接
+
+        返回: [
+            {
+                'url': str,
+                'filename': str,
+                'extension': str,
+                'link_text': str
+            }
+        ]
+        """
+        if not html:
+            return []
+
+        try:
+            soup = BeautifulSoup(html, "html.parser")
+            attachments = []
+
+            # 查找所有链接
+            for link in soup.find_all("a", href=True):
+                href = link.get("href", "")
+                link_text = link.get_text(strip=True)
+
+                if not href:
+                    continue
+
+                # 转换为绝对URL
+                absolute_url = urljoin(base_url, href)
+
+                # 检查是否为附件链接
+                is_attachment = False
+                extension = None
+
+                # 方法1: 检查URL扩展名
+                for ext in self.ATTACHMENT_EXTENSIONS:
+                    if absolute_url.lower().endswith(ext):
+                        is_attachment = True
+                        extension = ext
+                        break
+
+                # 方法2: 检查链接文本
+                if not is_attachment:
+                    for keyword in self.ATTACHMENT_LINK_KEYWORDS:
+                        if keyword in link_text:
+                            # 进一步检查URL中是否包含文件扩展名
+                            for ext in self.ATTACHMENT_EXTENSIONS:
+                                if ext in absolute_url.lower():
+                                    is_attachment = True
+                                    extension = ext
+                                    break
+                            if is_attachment:
+                                break
+
+                if is_attachment:
+                    # 生成文件名
+                    filename = self._extract_filename(absolute_url, link_text, extension)
+
+                    attachments.append({"url": absolute_url, "filename": filename, "extension": extension, "link_text": link_text})
+
+            return attachments
+
+        except Exception as e:
+            print(f"[AttachmentDownloader] 查找附件时出错: {e}")
+            return []
+
+    def _extract_filename(self, url: str, link_text: str, extension: str) -> str:
+        """从URL或链接文本中提取文件名"""
+        # 尝试从URL中提取文件名
+        try:
+            parsed_url = urlparse(url)
+            path = parsed_url.path
+            if path:
+                filename = os.path.basename(path)
+                if filename and extension in filename:
+                    return filename
+        except Exception:
+            pass
+
+        # 使用链接文本作为文件名
+        if link_text:
+            safe_name = re.sub(r'[\\/*?:"<>|]', "", link_text)
+            safe_name = re.sub(r"\s+", "_", safe_name)
+            safe_name = safe_name[:50]  # 限制长度
+            if extension:
+                return f"{safe_name}{extension}"
+            return safe_name
+
+        # 生成默认文件名
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        return f"attachment_{timestamp}{extension or ''}"
+
+    async def download_attachment(self, url: str, save_dir: str, filename: str = None) -> dict:
+        """下载附件到本地
+
+        返回: {
+            'success': bool,
+            'filename': str,
+            'filepath': str,
+            'size': int,
+            'url': str,
+            'error': str or None
+        }
+        """
+        try:
+            # 确保保存目录存在
+            os.makedirs(save_dir, exist_ok=True)
+
+            # 如果未指定文件名，从URL中提取
+            if not filename:
+                filename = os.path.basename(urlparse(url).path) or f"attachment_{get_uuid()[:8]}"
+
+            filepath = os.path.join(save_dir, filename)
+
+            # 下载文件
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=60)) as response:
+                    if response.status == 200:
+                        content = await response.read()
+
+                        # 保存文件
+                        async with aiofiles.open(filepath, "wb") as f:
+                            await f.write(content)
+
+                        file_size = len(content)
+                        print(f"[AttachmentDownloader] 成功下载附件: {filename} ({file_size} bytes)")
+
+                        return {"success": True, "filename": filename, "filepath": filepath, "size": file_size, "url": url, "error": None}
+                    else:
+                        error_msg = f"HTTP {response.status}"
+                        print(f"[AttachmentDownloader] 下载失败: {url} ({error_msg})")
+                        return {"success": False, "filename": filename, "filepath": None, "size": 0, "url": url, "error": error_msg}
+
+        except Exception as e:
+            print(f"[AttachmentDownloader] 下载附件时出错: {url} - {e}")
+            return {"success": False, "filename": filename, "filepath": None, "size": 0, "url": url, "error": str(e)}
+
+
+# =================================================================================
 # TopicCrawler 类 - 修复版
 # =================================================================================
 class TopicCrawler:
-    """基于内容评分的主题搜索爬虫 - 修复版
+    """基于内容评分的主题搜索爬虫 - 改进版
 
-    修复内容：
+    改进内容：
     1. 每个源使用独立的浏览器配置，避免跨源的上下文冲突
     2. 改进的资源管理，确保爬虫正确关闭
     3. 更强的异常处理，忽略已知的crawl4ai库问题
     4. 源之间添加延迟，确保资源完全释放
+    5. 集成政策文档识别功能
+    6. 自动检测和下载政策附件
     """
 
     def __init__(self):
         self.content_scorer = None
+        self.policy_detector = PolicyFeatureDetector()
+        self.attachment_downloader = AttachmentDownloader()
 
     async def search_by_topic_from_sources(
         self, sources: list, keywords: list, max_depth: int = 2, max_pages_per_source: int = 30, max_crawl_pages_per_source: int = 100, score_threshold: float = 0.3, persistent_hashes: set = None
@@ -314,6 +655,8 @@ class TopicCrawler:
                         "--disable-dev-shm-usage",
                         "--no-sandbox",
                         "--disable-extensions",
+                        "--disable-images",  # 【新增】禁用图片加载，加快速度
+                        "--blink-settings=imagesEnabled=false",  # 【新增】彻底禁用图片
                     ],
                 )
 
@@ -346,48 +689,209 @@ class TopicCrawler:
     async def _crawl_single_source(
         self, start_url: str, source_id: str, keywords: list, max_depth: int, max_pages: int, max_crawl_pages: int, score_threshold: float, persistent_hashes: set, browser_config: BrowserConfig
     ):
-        """爬取单个新闻源 - 使用内容评分（修复版）
+        """爬取单个新闻源 - 专注政策文档（简化版）
 
-        改进点：
-        1. 使用try-finally确保爬虫正确关闭
-        2. 在收集到足够内容后主动退出迭代
-        3. 捕获并处理已知的crawl4ai库错误
+        参数说明：
+        - max_pages: 最终收集的政策文档数量（目标）
+        - max_crawl_pages: 最多爬取多少个页面（总页面数限制）
+
+        简化后的工作流程：
+        1. 爬取最多 max_crawl_pages 个页面
+        2. 对每个页面检测是否为政策，筛选出政策页面
+        3. 政策页面中符合分数要求的才收集
+        4. 停止条件：收集到 max_pages 篇 或 爬取了 max_crawl_pages 个页面
         """
         newly_crawled_data = []
         visited_urls = set()
-        pages_processed = 0
-        should_stop = False
+        pages_processed = 0  # 总页面计数（包括政策和非政策）
+        policy_pages_found = 0  # 政策页面计数（仅用于日志）
+        link_scores_sum = 0.0  # 用于计算平均链接分
+        link_scores_count = 0  # 参与计算的链接数
+        enable_link_score_filter = True  # 是否启用链接分过滤
+        failed_pages = 0  # 【新增】失败页面计数（超时、网络错误等）
 
-        print(f"[TopicCrawler] 目标: {max_pages} 篇相关内容, 最大爬取: {max_crawl_pages} 页")
+        print(f"[TopicCrawler] 目标: 收集 {max_pages} 篇政策内容")
+        print(f"[TopicCrawler] 限制: 最多爬取 {max_crawl_pages} 个页面")
+        print("[TopicCrawler] 策略: 智能BestFirst（优先爬取政策相关链接）")
+        print("[TopicCrawler] 超时设置: 8秒/页")
 
-        # 使用 BFS 策略
+        # ===== 【智能爬取】使用 BestFirst 策略 + 关键词评分 =====
+
+        # 1. 关键词评分器：自动识别政策相关链接
+        keyword_scorer = KeywordRelevanceScorer(
+            keywords=[
+                # 中文政策类型关键词
+                "政策",
+                "通知",
+                "文件",
+                "办法",
+                "规定",
+                "意见",
+                "公告",
+                "决定",
+                "方案",
+                "规划",
+                "标准",
+                "指南",
+                "细则",
+                "条例",
+                "法规",
+                # 中文能源电力关键词
+                "电力",
+                "能源",
+                "电网",
+                "电价",
+                "市场",
+                "交易",
+                "现货",
+                "新能源",
+                "光伏",
+                "风电",
+                "储能",
+                "配电",
+                "输电",
+                # 英文关键词（政府网站URL可能包含）
+                "policy",
+                "notice",
+                "document",
+                "regulation",
+                "announcement",
+                "energy",
+                "power",
+                "electricity",
+                "market",
+                "trading",
+                # URL路径关键词
+                "zc",
+                "wj",
+                "tz",
+                "gg",
+                "fgw",
+                "nyj",
+                "drc",  # 拼音缩写
+                "news",
+                "xw",
+                "dt",
+                "zwgk",  # 新闻、动态、政务公开
+                # 【新增】地方政府网站常见URL模式
+                "gzdt",
+                "fzggdt",
+                "zcjd",
+                "zcwj",
+                "gfxwj",  # 工作动态、政策解读、政策文件
+                "zfxxgk",
+                "yjzj",
+                "ztzl",
+                "bmxx",  # 政府信息公开、预警专栏、专题专栏
+                # 组合关键词
+                "电力市场",
+                "能源政策",
+                "电价政策",
+                "市场交易",
+            ]
+            + keywords,  # 加上用户提供的搜索关键词
+            weight=0.3,  # 关键词权重（0.0-1.0），越高越重要
+        )
+
+        # 2. 内容相关性过滤器：过滤无关链接
+        # relevance_filter = ContentRelevanceFilter(
+        #     query=" ".join(keywords) + " 电力能源政策文件通知",  # 查询文本
+        #     threshold=0.5,  # 相关度阈值（0.0-1.0），低于此值的链接会被过滤
+        # )
+
+        # 3. URL模式过滤器：使用通配符匹配政策相关URL
+        # url_filter = URLPatternFilter(
+        #     patterns=[
+        #         "*policy*",
+        #         "*zc*",
+        #         "*wj*",
+        #         "*tz*",
+        #         "*gg*",  # 政策、文件、通知、公告拼音
+        #         "*fgw*",
+        #         "*nyj*",
+        #         "*drc*",  # 发改委、能源局、发改委拼音
+        #         "*news*",
+        #         "*xw*",
+        #         "*dt*",  # 新闻、动态
+        #         "*/20[2-9][0-9]/*",  # 日期路径（2020-2099）
+        #         "*/c_[0-9]*",  # 常见政府网站文章格式
+        #     ]
+        # )
+
+        # 4. 组合过滤器
+        filter_chain = FilterChain(
+            [
+                ContentTypeFilter(allowed_types=["text/html"]),  # 只爬HTML页面
+                # relevance_filter,  # 暂时注释，避免过度过滤
+                # url_filter,        # 暂时注释，观察效果
+            ]
+        )
+
+        # 5. 配置 BestFirst 策略
         config = CrawlerRunConfig(
-            deep_crawl_strategy=BFSDeepCrawlStrategy(
-                max_depth=max_depth, include_external=False, max_pages=max_crawl_pages, filter_chain=FilterChain([ContentTypeFilter(allowed_types=["text/html"])])
+            deep_crawl_strategy=BestFirstCrawlingStrategy(
+                max_depth=max_depth,
+                include_external=False,  # 只爬取同域名链接
+                max_pages=max_crawl_pages,  # 限制总页面数
+                url_scorer=keyword_scorer,  # 使用关键词评分器
+                filter_chain=filter_chain,  # 应用过滤链
             ),
             scraping_strategy=LXMLWebScrapingStrategy(),
-            stream=True,
+            stream=False,  # 改回批量模式，stream 模式太不稳定
             verbose=True,
+            page_timeout=8000,  # 页面超时8秒（适合大规模爬取）
+            wait_until="commit",  # 【新增】改为更宽松的等待策略（commit比domcontentloaded更快）
         )
 
         crawler = None
         try:
-            # 【修复】手动管理爬虫生命周期
+            # 【智能爬取】批量模式处理
             crawler = AsyncWebCrawler(config=browser_config)
             await crawler.__aenter__()
 
             try:
-                async for result in await crawler.arun(start_url, config=config):
-                    # 检查是否应该停止
-                    if should_stop or len(newly_crawled_data) >= max_pages:
-                        if not should_stop:
-                            print(f"[TopicCrawler] ✓ 已收集到 {max_pages} 篇相关内容，停止爬取")
-                            should_stop = True
-                        break  # 【关键】直接退出循环
+                # 批量模式：返回结果列表
+                print("[TopicCrawler] 开始智能爬取（BestFirst策略）...")
+                crawl_result = await crawler.arun(start_url, config=config)
+
+                # 提取结果列表
+                results_list = []
+                if isinstance(crawl_result, list):
+                    results_list = crawl_result
+                    print(f"[TopicCrawler] 爬取完成，获得 {len(results_list)} 个页面（已按链接评分排序）")
+                elif hasattr(crawl_result, "results") and crawl_result.results:
+                    results_list = crawl_result.results
+                    print(f"[TopicCrawler] 爬取完成，获得 {len(results_list)} 个页面")
+                else:
+                    print("[TopicCrawler] 警告：未获取到结果")
+                    results_list = []
+
+                # 遍历所有结果（已按BestFirst评分排序）
+                for result in results_list:
+                    # 停止条件1：已收集到足够的政策内容
+                    if len(newly_crawled_data) >= max_pages:
+                        print(f"[TopicCrawler] ✓ 已收集到 {max_pages} 篇政策内容，停止爬取")
+                        break
+
+                    # 停止条件2：已爬取足够多的页面
+                    if pages_processed >= max_crawl_pages:
+                        print(f"[TopicCrawler] ✓ 已处理 {max_crawl_pages} 个页面（政策: {policy_pages_found}, 收集: {len(newly_crawled_data)}），停止爬取")
+                        break
 
                     pages_processed += 1
 
                     if not result.success:
+                        failed_pages += 1
+                        # 【新增】记录失败原因（仅前10个失败页面输出详细信息）
+                        if failed_pages <= 10:
+                            error_msg = getattr(result, "error_message", "Unknown error")
+                            print(f"[TopicCrawler] ✗ 页面失败 #{failed_pages}: {result.url[:80]}...")
+                            if "Timeout" in str(error_msg) or "timeout" in str(error_msg):
+                                print("[TopicCrawler]    原因: 页面加载超时（已忽略）")
+                            elif error_msg:
+                                print(f"[TopicCrawler]    原因: {str(error_msg)[:100]}")
+                        elif failed_pages % 10 == 0:
+                            print(f"[TopicCrawler] 已跳过 {failed_pages} 个失败页面")
                         continue
 
                     url = result.url
@@ -395,7 +899,14 @@ class TopicCrawler:
                         continue
                     visited_urls.add(url)
 
-                    # 提取内容
+                    # 获取链接评分（BestFirst策略会给每个结果打分）
+                    link_score = result.metadata.get("score", 0.0) if result.metadata else 0.0
+
+                    # 统计链接分用于诊断
+                    link_scores_sum += link_score
+                    link_scores_count += 1
+
+                    # 【提前提取title和content】供后续debug和过滤使用
                     content_text = self._extract_content(result)
                     title = getattr(result, "title", "") or ""
                     if not str(title).strip():
@@ -414,40 +925,155 @@ class TopicCrawler:
                             pass
                     title = (title or "").strip()
 
+                    # 【调试】查看实际的链接和评分信息（仅前5个页面）
+                    if pages_processed <= 5:
+                        print(f"[DEBUG] 页面 {pages_processed}:")
+                        print(f"  URL: {url}")
+                        print(f"  Title: {title[:50] if title else 'None'}")
+                        print(f"  链接分: {link_score:.3f}")
+                        # 查看是否有其他评分相关信息
+                        if result.metadata:
+                            print(f"  Depth: {result.metadata.get('depth', '?')}")
+                            print(f"  Parent URL: {result.metadata.get('parent_url', 'None')}")
+                            # 【新增】查看anchor_text和其他可能影响评分的信息
+                            anchor_text = result.metadata.get("anchor_text", "")
+                            print(f"  Anchor Text: {anchor_text[:50] if anchor_text else 'None'}")
+                            # 显示所有metadata keys以便诊断
+                            print(f"  Metadata Keys: {list(result.metadata.keys())}")
+
+                    # 【诊断】检查KeywordRelevanceScorer是否工作
+                    if pages_processed == 20:
+                        avg_link_score = link_scores_sum / link_scores_count if link_scores_count > 0 else 0.0
+                        print("\n[TopicCrawler] ⚠️  链接评分诊断（前20页）：")
+                        print(f"  平均链接分: {avg_link_score:.4f}")
+                        if avg_link_score < 0.01:
+                            print("  警告：链接分过低！KeywordRelevanceScorer可能未生效")
+                            print("  可能原因：")
+                            print("    1. 政府网站URL为编码ID，不包含关键词")
+                            print("    2. Anchor text为通用文本（'更多'、'详情'等）")
+                            print("    3. 中文关键词支持问题")
+                            print("  当前策略：禁用链接分过滤，完全依赖PolicyFeatureDetector\n")
+                            enable_link_score_filter = False  # 禁用链接分过滤
+
+                    # 【关键过滤】链接分过低的页面直接跳过（节省资源）
+                    # 注意：如果诊断发现链接分无效，此过滤器会被禁用
+                    if enable_link_score_filter:
+                        MIN_LINK_SCORE = 0.05  # 降低阈值，避免过滤所有内容
+                        if link_score > 0 and link_score < MIN_LINK_SCORE and pages_processed > 1:  # 首页除外
+                            if pages_processed % 10 == 0:
+                                print(f"[TopicCrawler] 跳过低分链接 (链接分{link_score:.2f}) | 已处理 {pages_processed} 页")
+                            continue
+
                     if not content_text or len(content_text.strip()) < 100:
                         continue
 
-                    # 使用内容评分
-                    content_score = self.content_scorer.score(content_text, title)
-                    matched_keywords = self.content_scorer.get_matched_keywords(content_text + " " + title)
+                    # ===== 【关键1】先检测是否为政策文档 =====
+                    html = getattr(result, "html", None) or ""
+                    policy_info = self.policy_detector.detect(html, title, content_text, url)
+
+                    # 如果不是政策文档，直接跳过
+                    if not policy_info["is_policy"]:
+                        if pages_processed % 10 == 0:  # 每10个页面输出一次，避免日志过多
+                            print(f"[TopicCrawler] 已处理 {pages_processed} 页 | 发现 {policy_pages_found} 个政策页面 | 收集 {len(newly_crawled_data)} 篇")
+                        continue
+
+                    # ===== 【关键2】这是政策页面，计数+1 =====
+                    policy_pages_found += 1
                     depth = result.metadata.get("depth", 0) if result.metadata else 0
 
-                    print(f"[TopicCrawler] 深度: {depth} | 评分: {content_score:.2f} | 匹配: {matched_keywords[:3]} | {url[:60]}...")
+                    # 计算内容相关性和综合分数
+                    content_score = self.content_scorer.score(content_text, title)
+                    matched_keywords = self.content_scorer.get_matched_keywords(content_text + " " + title)
+                    policy_score = policy_info["score"]
+                    final_score = content_score * 0.5 + policy_score * 0.5
 
-                    if content_score < score_threshold:
+                    # 显示详细评分（包括BestFirst的链接评分）
+                    print(
+                        f"[TopicCrawler] 🏛️ 政策#{policy_pages_found} | 深度{depth} | 链接分{link_score:.2f} | 综合分{final_score:.2f} (内容{content_score:.2f}/政策{policy_score:.2f}) | {title[:30]}..."
+                    )
+
+                    # 检查分数是否达标
+                    if final_score < score_threshold:
+                        print("[TopicCrawler]    ⊗ 分数过低，跳过")
                         continue
 
-                    # 去重
+                    # ===== 【关键3】去重检查（内容哈希 + 数据库URL）=====
+                    # 3.1 内存去重：基于内容哈希
                     content_hash = hashlib.sha256(content_text.encode("utf-8")).hexdigest()
                     if content_hash in persistent_hashes:
-                        print(f"[TopicCrawler] 跳过重复内容: {title[:30]}...")
+                        print("[TopicCrawler]    ⊗ 重复内容（哈希），跳过")
                         continue
+
+                    # 3.2 数据库去重：基于URL（避免重复收集已入库的内容）
+                    try:
+                        from api.db.services.news_service import NewsContentService
+
+                        if NewsContentService.model.select().where(NewsContentService.model.original_url == url).exists():
+                            print("[TopicCrawler]    ⊗ URL已存在数据库，跳过")
+                            continue
+                    except Exception as db_check_error:
+                        # 数据库检查失败不影响爬取，继续处理
+                        print(f"[TopicCrawler]    ⚠ 数据库去重检查失败: {db_check_error}")
+
                     persistent_hashes.add(content_hash)
+
+                    # 查找并下载附件
+                    attachments = []
+                    if html:
+                        try:
+                            found_attachments = await self.attachment_downloader.find_attachments(html, url)
+
+                            if found_attachments:
+                                print(f"[TopicCrawler]    📎 发现 {len(found_attachments)} 个附件")
+
+                                base_dir = "crawl4ai_data"
+                                safe_title = _sanitize_filename(title[:30] or "untitled")
+                                attachment_dir = os.path.join(base_dir, "attachments", safe_title)
+
+                                for att in found_attachments[:5]:
+                                    download_result = await self.attachment_downloader.download_attachment(url=att["url"], save_dir=attachment_dir, filename=att["filename"])
+
+                                    if download_result["success"]:
+                                        attachments.append(
+                                            {
+                                                "filename": download_result["filename"],
+                                                "filepath": download_result["filepath"],
+                                                "size": download_result["size"],
+                                                "url": download_result["url"],
+                                                "extension": att["extension"],
+                                                "link_text": att["link_text"],
+                                            }
+                                        )
+                                        print(f"[TopicCrawler]       ✓ {download_result['filename']}")
+                                    else:
+                                        print(f"[TopicCrawler]       ✗ {att['filename']}")
+
+                                print(f"[TopicCrawler]    ✓ 下载 {len(attachments)}/{len(found_attachments)} 个附件")
+                        except Exception as e:
+                            print(f"[TopicCrawler]    ✗ 附件处理出错: {e}")
 
                     # 收集内容
                     article_data = {
                         "url": url,
                         "source_id": source_id,
                         "score": content_score,
+                        "final_score": final_score,
                         "depth": depth,
                         "content": content_text,
                         "content_hash": content_hash,
                         "title": title,
                         "matched_keywords": matched_keywords,
                         "crawl_timestamp": datetime.now().isoformat(),
+                        "is_policy": True,  # 这里一定是政策
+                        "policy_score": policy_score,
+                        "policy_features": policy_info["features"],
+                        "attachments": attachments,
+                        "attachment_count": len(attachments),
                     }
                     newly_crawled_data.append(article_data)
-                    print(f"[TopicCrawler] ✓ 收集: {title[:40]}... (评分: {content_score:.2f})")
+
+                    attachment_tag = f"📎{len(attachments)}" if attachments else ""
+                    print(f"[TopicCrawler]    ✓ 收集成功 {attachment_tag} [已收集 {len(newly_crawled_data)}/{max_pages}]")
 
             except GeneratorExit:
                 # 【修复】正常处理生成器退出
@@ -483,7 +1109,7 @@ class TopicCrawler:
             # 额外等待，确保浏览器进程完全退出
             await asyncio.sleep(0.5)
 
-        print(f"[TopicCrawler] 单源完成: 处理 {pages_processed} 页, 收集 {len(newly_crawled_data)} 篇")
+        print(f"[TopicCrawler] 单源完成: 处理 {pages_processed} 页, 发现 {policy_pages_found} 个政策页面, 收集 {len(newly_crawled_data)} 篇")
         return newly_crawled_data
 
     def _extract_content(self, result) -> str:
@@ -512,15 +1138,17 @@ def _enrich_metadata(article_data: dict, source: dict) -> dict:
 
     source_dict = source or {}
 
-    metadata.update({
-        "source_id": source_dict.get("id") or metadata.get("source_id"),
-        "source_name": source_dict.get("name") or metadata.get("source_name"),
-        "source_url": source_dict.get("url") or metadata.get("source_url") or article_data.get("url"),
-        "source_type": source_dict.get("source_type") or metadata.get("source_type") or "news",
-        "region": source_dict.get("region") or metadata.get("region"),
-        "issuer": source_dict.get("issuer") or metadata.get("issuer"),
-        "policy_theme": source_dict.get("policy_theme") or metadata.get("policy_theme") or [],
-    })
+    metadata.update(
+        {
+            "source_id": source_dict.get("id") or metadata.get("source_id"),
+            "source_name": source_dict.get("name") or metadata.get("source_name"),
+            "source_url": source_dict.get("url") or metadata.get("source_url") or article_data.get("url"),
+            "source_type": source_dict.get("source_type") or metadata.get("source_type") or "news",
+            "region": source_dict.get("region") or metadata.get("region"),
+            "issuer": source_dict.get("issuer") or metadata.get("issuer"),
+            "policy_theme": source_dict.get("policy_theme") or metadata.get("policy_theme") or [],
+        }
+    )
 
     article_data["metadata"] = metadata
     return article_data
@@ -534,7 +1162,7 @@ def _sanitize_filename(name: str) -> str:
 
 
 async def _upload_to_knowledgebase(kb_id: str, tenant_id: str, file_path: str, article_data: dict, parse: bool = False, document_id: str = None) -> bool:
-    """上传内容到知识库 (修复版)"""
+    """上传内容到知识库 (改进版 - 支持二进制文件)"""
     try:
         _, kb = KnowledgebaseService.get_by_id(kb_id)
         if not kb:
@@ -544,9 +1172,22 @@ async def _upload_to_knowledgebase(kb_id: str, tenant_id: str, file_path: str, a
         doc_name = os.path.basename(file_path)
         doc_id = document_id if document_id else get_uuid()
 
-        # 读取文件内容(文本模式)
-        async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
-            file_content = await f.read()
+        # 判断文件类型，决定使用文本还是二进制模式读取
+        file_extension = os.path.splitext(file_path)[1].lower()
+        binary_extensions = [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".zip", ".rar"]
+        is_binary = file_extension in binary_extensions
+
+        # 读取文件内容
+        if is_binary:
+            # 二进制模式读取
+            async with aiofiles.open(file_path, "rb") as f:
+                file_content_bytes = await f.read()
+            file_content = None  # 二进制文件不需要文本内容
+        else:
+            # 文本模式读取（JSON等）
+            async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
+                file_content = await f.read()
+            file_content_bytes = file_content.encode("utf-8")
 
         meta_fields = article_data.get("metadata", {}) if isinstance(article_data, dict) else {}
 
@@ -567,14 +1208,23 @@ async def _upload_to_knowledgebase(kb_id: str, tenant_id: str, file_path: str, a
         sanitized_title = _sanitize_filename(article_title)
         if not sanitized_title:
             sanitized_title = _sanitize_filename(f"Untitled_{datetime.now().strftime('%Y%m%d%H%M%S')}")
-        doc_name = f"{sanitized_title}.json"
+
+        # 根据原始文件扩展名设置文档名称
+        if file_extension:
+            doc_name = f"{sanitized_title}{file_extension}"
+            doc_suffix = file_extension.lstrip(".")
+            doc_type = doc_suffix
+        else:
+            doc_name = f"{sanitized_title}.json"
+            doc_suffix = "json"
+            doc_type = "json"
 
         # location 应该是相对于 bucket 的路径
         doc_id = document_id if document_id else get_uuid()
         storage_location = f"{doc_id}/{doc_name}"
 
         # 使用 settings.STORAGE_IMPL 进行存储
-        settings.STORAGE_IMPL.put(kb_id, storage_location, file_content.encode("utf-8"))
+        settings.STORAGE_IMPL.put(kb_id, storage_location, file_content_bytes)
 
         # 如果调用方提供了 document_id,则尝试更新该 Document;
         # 否则新建 Document(保持向后兼容)
@@ -585,10 +1235,10 @@ async def _upload_to_knowledgebase(kb_id: str, tenant_id: str, file_path: str, a
                     document_id,
                     {
                         "location": storage_location,
-                        "size": len(file_content),
+                        "size": len(file_content_bytes),
                         "name": doc_name,
-                        "suffix": "json",
-                        "type": "json",
+                        "suffix": doc_suffix,
+                        "type": doc_type,
                         "source_type": "local",
                         "meta_fields": meta_fields,
                     },
@@ -611,9 +1261,9 @@ async def _upload_to_knowledgebase(kb_id: str, tenant_id: str, file_path: str, a
                 "kb_id": kb_id,
                 "name": doc_name,
                 "location": storage_location,
-                "size": len(file_content),
-                "type": "json",
-                "suffix": "json",
+                "size": len(file_content_bytes),
+                "type": doc_type,
+                "suffix": doc_suffix,
                 "parser_id": kb.parser_id,
                 "parser_config": kb.parser_config,
                 "source_type": "local",
@@ -647,11 +1297,11 @@ async def _upload_to_knowledgebase(kb_id: str, tenant_id: str, file_path: str, a
                 "kb_id": kb_id,
                 "name": doc_name,
                 "location": storage_location,
-                "type": "json",
+                "type": doc_type,
                 "parser_id": kb.parser_id,
                 "parser_config": kb.parser_config,
                 "tenant_id": tenant_id,
-                "size": len(file_content),
+                "size": len(file_content_bytes),
             }
             queue_tasks(doc_info, bucket, name, 0)
             print(f"[知识库上传] 已将文档 {doc_name} 加入解析队列")
@@ -853,6 +1503,7 @@ async def _async_topic_search_worker(
                     except Exception:
                         document_id = None
 
+                    # 上传主文档（JSON文件）
                     await _upload_to_knowledgebase(
                         kb_id=kb_id,
                         tenant_id=tenant_id,
@@ -861,6 +1512,41 @@ async def _async_topic_search_worker(
                         parse=parse,
                         document_id=document_id,
                     )
+
+                    # 上传附件
+                    attachments = page_data.get("attachments", [])
+                    if attachments:
+                        print(f"[知识库集成] 开始上传 {len(attachments)} 个附件...")
+                        for idx, attachment in enumerate(attachments):
+                            try:
+                                attachment_path = attachment.get("filepath")
+                                if attachment_path and os.path.exists(attachment_path):
+                                    # 为附件创建单独的article_data
+                                    attachment_article_data = {
+                                        "title": f"{page_title}_附件_{idx + 1}_{attachment.get('filename')}",
+                                        "url": attachment.get("url", ""),
+                                        "content": f"这是政策文档《{page_title}》的附件文件。\n\n原文链接: {page_data.get('url')}\n附件名称: {attachment.get('filename')}\n文件大小: {attachment.get('size')} bytes",
+                                    }
+
+                                    # 上传附件到知识库
+                                    attachment_upload_success = await _upload_to_knowledgebase(
+                                        kb_id=kb_id,
+                                        tenant_id=tenant_id,
+                                        file_path=attachment_path,
+                                        article_data=attachment_article_data,
+                                        parse=parse,
+                                        document_id=None,  # 附件作为新文档
+                                    )
+
+                                    if attachment_upload_success:
+                                        print(f"[知识库集成] ✓ 附件上传成功: {attachment.get('filename')}")
+                                    else:
+                                        print(f"[知识库集成] ✗ 附件上传失败: {attachment.get('filename')}")
+                                else:
+                                    print(f"[知识库集成] ✗ 附件文件不存在: {attachment_path}")
+
+                            except Exception as att_err:
+                                print(f"[知识库集成] 附件上传出错: {att_err}")
 
             except Exception as e:
                 print(f"[数据库同步] 警告: 写入数据库失败: {e}")
@@ -891,42 +1577,33 @@ manager = Blueprint("news_collector_bp", __name__)
 
 
 # ========== 新闻源管理 CRUD ==========
-
-
 @manager.route("/news_collector/sources", methods=["GET"])
 @token_required
 def list_news_sources(tenant_id):
     """获取新闻源列表"""
     try:
         page = int(request.args.get("page", 1))
-        page_size = int(request.args.get("page_size", 20))
+        page_size = int(request.args.get("page_size", 50))
         name = request.args.get("name")
         status = request.args.get("status")
         source_type = request.args.get("source_type")
         source_types_param = request.args.get("source_types")
         source_types = None
         if source_types_param:
-            source_types = [s.strip() for s in source_types_param.split(',') if s.strip()]
+            source_types = [s.strip() for s in source_types_param.split(",") if s.strip()]
         elif source_type:
             source_types = [source_type]
 
         sources, total = NewsSourceService.get_by_tenant_id(
-            tenant_id=tenant_id,
-            page=page,
-            page_size=page_size,
-            name=name,
-            status=status,
-            source_type=None if source_types else source_type,
-            source_types=source_types
+            tenant_id=tenant_id, page=page, page_size=page_size, name=name, status=status, source_type=None if source_types else source_type, source_types=source_types
         )
 
         # 返回当前租户可用的源分组（source_type 列表），便于前端多组点选
         groups = []
         try:
-            group_query = NewsSourceService.model.select(NewsSourceService.model.source_type).where(
-                (NewsSourceService.model.tenant_id == tenant_id) &
-                (NewsSourceService.model.status != 'deleted')
-            ).distinct()
+            group_query = (
+                NewsSourceService.model.select(NewsSourceService.model.source_type).where((NewsSourceService.model.tenant_id == tenant_id) & (NewsSourceService.model.status != "deleted")).distinct()
+            )
             groups = [g.source_type for g in group_query if g.source_type]
         except Exception:
             groups = []
@@ -942,13 +1619,10 @@ def list_news_sources(tenant_id):
 def list_news_source_groups(tenant_id):
     """按 source_type 分组返回源列表"""
     try:
-        query = NewsSourceService.model.select().where(
-            (NewsSourceService.model.tenant_id == tenant_id) &
-            (NewsSourceService.model.status != 'deleted')
-        )
+        query = NewsSourceService.model.select().where((NewsSourceService.model.tenant_id == tenant_id) & (NewsSourceService.model.status != "deleted"))
         groups = {}
         for source in query:
-            g = source.source_type or 'unknown'
+            g = source.source_type or "unknown"
             groups.setdefault(g, []).append(NewsSourceService.to_dict(source))
         data = [{"group": group, "sources": items} for group, items in groups.items()]
         return get_json_result(data={"groups": data})
@@ -958,49 +1632,75 @@ def list_news_source_groups(tenant_id):
 
 @manager.route("/news_collector/sources", methods=["POST"])
 @token_required
-def create_news_source(tenant_id):
-    """创建新闻源"""
+async def create_news_source(tenant_id):  # <--- 修改1：添加 async
+    """创建新闻源 (修复版: 适配异步框架)"""
     try:
-        req = request.get_json()
+        # 1. 强制解析 JSON (适配异步)
+        # 这里的 request.get_json() 返回的是一个协程，必须 await 才能拿到真正的 dict/list
+        req = await request.get_json(force=True, silent=True)  # <--- 修改2：添加 await
 
-        if not req.get("name"):
-            return get_json_result(code=400, message="名称(name)不能为空")
-        if not req.get("url"):
-            return get_json_result(code=400, message="URL(url)不能为空")
+        # --- 调试打印 ---
+        # print(f"DEBUG: 接收到的数据类型: {type(req)}")
 
-        try:
-            source = NewsSourceService.create_source(tenant_id=tenant_id, user_id=tenant_id, **req)
-            return get_json_result(data={"source": source})
-        except ValueError as ve:
-            return get_json_result(code=400, message=str(ve))
+        # 2. 空值处理
+        if req is None:
+            return get_json_result(code=RetCode.ARGUMENT_ERROR, message="解析失败：后端接收到的数据为None。请检查Postman Body是否为 JSON")
 
-    except Exception as e:
-        return server_error_response(e)
+        # 3. 数据类型判断
+        if isinstance(req, list):
+            sources_data = req
+        elif isinstance(req, dict):
+            sources_data = [req]
+        else:
+            return get_json_result(code=RetCode.ARGUMENT_ERROR, message=f"请求数据格式错误。期望是数组或对象，实际接收到类型: {type(req).__name__}")
 
-
-@manager.route("/news_collector/sources/import", methods=["POST"])
-@token_required
-def import_news_sources(tenant_id):
-    """批量导入新闻源，接收 JSON 数组"""
-    try:
-        req = request.get_json()
-        sources = req if isinstance(req, list) else req.get("sources") if isinstance(req, dict) else None
-        if not sources or not isinstance(sources, list):
-            return get_json_result(code=400, message="请求体需为数组或包含 sources 数组")
-
-        created = []
+        created_sources = []
         errors = []
-        for idx, src in enumerate(sources):
-            try:
-                if not src.get("name") or not src.get("url"):
-                    raise ValueError("name 和 url 必填")
-                created.append(NewsSourceService.create_source(tenant_id=tenant_id, user_id=tenant_id, **src))
-            except Exception as ex:
-                errors.append({"index": idx, "name": src.get("name"), "error": str(ex)})
 
-        return get_json_result(data={"created": created, "errors": errors})
+        # 4. 遍历处理
+        for index, item in enumerate(sources_data):
+            # 这里的 item 必须是字典
+            if not isinstance(item, dict):
+                return get_json_result(code=RetCode.ARGUMENT_ERROR, message=f"第 {index + 1} 条数据格式错误，必须是JSON对象")
+
+            if not item.get("name"):
+                return get_json_result(code=RetCode.ARGUMENT_ERROR, message=f"第 {index + 1} 条数据缺少名称(name)")
+            if not item.get("url"):
+                return get_json_result(code=RetCode.ARGUMENT_ERROR, message=f"第 {index + 1} 条数据缺少URL(url)")
+
+            # 补全默认值
+            if "status" not in item:
+                item["status"] = "active"
+            if "fetch_config" not in item:
+                item["fetch_config"] = {"selector": None, "encoding": "utf-8", "timeout": 30, "headers": {}}
+            if "remark" not in item:
+                item["remark"] = ""
+            if "type" not in item:
+                # 根据你的数据库模型，type 不能为空
+                return get_json_result(code=RetCode.ARGUMENT_ERROR, message=f"第 {index + 1} 条数据缺少类型(type)")
+
+            # 调用 Service
+            # 注意：如果 NewsSourceService.create_source 内部也涉及数据库异步操作，
+            # 可能也需要加 await，例如: await NewsSourceService.create_source(...)
+            # 但通常ORM层可能是同步的，先试着保持现状，如果报错再改。
+            try:
+                source = NewsSourceService.create_source(tenant_id=tenant_id, user_id=tenant_id, **item)
+                created_sources.append(source)
+            except Exception as inner_e:
+                print(f"Error creating source {item.get('name')}: {str(inner_e)}")
+                # 记录错误但不中断整个循环（可选）
+                errors.append(f"'{item.get('name')}': {str(inner_e)}")
+
+        # 如果全部失败
+        if not created_sources and errors:
+            return get_json_result(code=RetCode.ARGUMENT_ERROR, message=f"批量添加全部失败: {'; '.join(errors)}")
+
+        return get_json_result(data={"sources": created_sources, "count": len(created_sources), "message": "批量添加成功" if not errors else f"部分成功，失败: {'; '.join(errors)}"})
 
     except Exception as e:
+        import traceback
+
+        traceback.print_exc()
         return server_error_response(e)
 
 
@@ -1075,14 +1775,14 @@ async def crawl_from_post_api(tenant_id):
     max_pages_per_source = int(req_data.get("max_pages_per_source", 50))
 
     if isinstance(source_types, str):
-        source_types = [s.strip() for s in source_types.split(',') if s.strip()]
+        source_types = [s.strip() for s in source_types.split(",") if s.strip()]
 
     if not isinstance(source_ids, list):
         return get_json_result(code=400, message="'source_ids' 必须是数组。")
 
     if source_types:
         type_sources = NewsSourceService.get_by_types(tenant_id, source_types)
-        source_ids.extend([s['id'] for s in type_sources])
+        source_ids.extend([s["id"] for s in type_sources])
 
     # 去重并保持顺序
     seen = set()
@@ -1099,11 +1799,9 @@ async def crawl_from_post_api(tenant_id):
         thread = threading.Thread(target=_background_crawl_from_post_wrapper, args=(tenant_id, resolved_source_ids, depth, max_pages_per_source))
         thread.start()
 
-        return get_json_result(data={
-            "message": f"已成功启动后台即时抓取任务，将从数据库加载并处理 {len(resolved_source_ids)} 个新闻源。",
-            "source_ids": resolved_source_ids,
-            "source_types": source_types
-        })
+        return get_json_result(
+            data={"message": f"已成功启动后台即时抓取任务，将从数据库加载并处理 {len(resolved_source_ids)} 个新闻源。", "source_ids": resolved_source_ids, "source_types": source_types}
+        )
 
     except Exception as e:
         traceback.print_exc()
@@ -1148,7 +1846,7 @@ async def topic_search_api(tenant_id):
 
     # 参数验证
     if isinstance(source_types, str):
-        source_types = [s.strip() for s in source_types.split(',') if s.strip()]
+        source_types = [s.strip() for s in source_types.split(",") if s.strip()]
     if not isinstance(source_ids, list):
         return get_json_result(code=400, message="'source_ids' 必须是数组")
 
@@ -1157,7 +1855,7 @@ async def topic_search_api(tenant_id):
 
     if source_types:
         type_sources = NewsSourceService.get_by_types(tenant_id, source_types)
-        source_ids.extend([s['id'] for s in type_sources])
+        source_ids.extend([s["id"] for s in type_sources])
 
     seen = set()
     resolved_source_ids = []
