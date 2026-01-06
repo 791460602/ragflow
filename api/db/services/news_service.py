@@ -814,6 +814,26 @@ class CrawlTaskLogService(CommonService):
 
     @classmethod
     @DB.connection_context()
+    def list_by_tenant(
+        cls,
+        tenant_id: str,
+        target_id: Optional[str] = None,
+        status: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 50,
+    ):
+        query = cls.model.select().where(cls.model.tenant_id == tenant_id)
+        if target_id:
+            query = query.where(cls.model.target_id == target_id)
+        if status:
+            query = query.where(cls.model.status == status)
+
+        total = query.count()
+        rows = query.order_by(cls.model.started_at.desc()).paginate(page, page_size)
+        return [cls.to_dict(r) for r in rows], total
+
+    @classmethod
+    @DB.connection_context()
     def create_log(cls, tenant_id: str, target_id: str, status: str = "dispatched", run_type: str = "manual", params: Optional[dict] = None):
         log = cls.model.create(
             id=get_uuid(),

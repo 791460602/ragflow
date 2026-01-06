@@ -303,10 +303,12 @@ NEWS_COLLECTOR_CONFIG = {
         - `GET/POST/PUT/DELETE /target_groups`
         - `GET/POST/PUT/DELETE /targets`
         - `POST /targets/run`
+        - `GET /task_logs`（运行记录列表，可选参数：`target_id`/`status`/`page`/`page_size`）
     - SDK Token（Bearer token）：
         - `GET/POST/PUT/DELETE /news_collector/target_groups`
         - `GET/POST/PUT/DELETE /news_collector/targets`
         - `POST /news_collector/targets/run`
+        - `GET /news_collector/task_logs`（运行记录列表，可选参数：`target_id`/`status`/`page`/`page_size`）
 - 旧接口仍可用（立即运行）：`/news_collector/crawl_from_post`、`/news_collector/topic_search`，Web 侧继续保留 `/crawl_from_post`、`/topic_search`。
 - 前端最小必填：
     - 创建目标：`name`、`source_id`，可选 `group_id`、`kb_id`、`parse`（默认 false）、`max_depth`(2)、`max_pages_per_source`(50)、`max_crawl_pages_per_source`(100)。
@@ -315,6 +317,22 @@ NEWS_COLLECTOR_CONFIG = {
     - 参数默认值由后端填充，前端只露出必填项，减少前端计算与校验；业务校验（租户归属、kb 访问权限、source 归属）已在后端处理（`kb_id` 会校验可访问）。
     - 列表页可展示 `status`、`kb_id`、`max_pages_per_source`；详情页可提供“一键运行”调用 `/targets/run`。
     - 发布前务必执行迁移/建表，避免缺表导致 500。
+
+
+##### 概念：Source vs Target（不要混）
+
+- `source`（新闻源）= 站点定义（name/url/selector/fetch_config/status...），适合做“源库”。
+- `target`（爬虫目标）= source + 运行参数（深度/页数）+ 可选入库（kb_id/parse）+ 启用状态，适合做“运行配置”。
+- 想做到“每个网站单独设置爬取深度”：在 target 上配置（一个 source 可以有多个 target）。
+
+##### 最小可跑流程（前端照着做）
+
+1) 创建 source（POST `/v1/news_collector/sources`）
+2) 创建 target（POST `/v1/news_collector/targets`，绑定 `source_id`，其余参数可先不填用默认）
+3) 一键运行 target（POST `/v1/news_collector/targets/run`）
+4) 用运行记录回显状态（GET `/v1/news_collector/task_logs?target_id=...`）
+
+> 说明：`/targets/run` 只负责“触发后台执行”，不会同步返回爬到的内容；前端应提示“已触发/后台执行中”。
 
 示例：登录态创建目标（POST /v1/news_collector/targets）
 ```json
@@ -335,6 +353,32 @@ NEWS_COLLECTOR_CONFIG = {
 ```json
 {
     "target_ids": ["tgt_daily_energy", "tgt_daily_market"]
+}
+```
+
+示例：登录态查看运行记录（GET /v1/news_collector/task_logs?target_id=...）
+返回示例：
+```json
+{
+    "code": 0,
+    "message": "success",
+    "data": {
+        "logs": [
+            {
+                "id": "log_1",
+                "target_id": "tgt_daily_energy",
+                "status": "dispatched",
+                "run_type": "manual",
+                "started_at": 1700000000000,
+                "finished_at": null,
+                "error_message": null,
+                "params": {"depth": 2, "max_pages_per_source": 30, "kb_id": "kb_policy", "parse": false, "source_id": "src_123"}
+            }
+        ],
+        "total": 1,
+        "page": 1,
+        "page_size": 50
+    }
 }
 ```
 返回示例：
@@ -376,6 +420,12 @@ curl -X POST "http://localhost:9222/api/v1/news_collector/targets/run" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer <API_KEY>" \
     -d '{"target_ids": ["tgt_daily_energy", "tgt_daily_market"]}'
+```
+
+示例：SDK Token 查看运行记录（curl，GET http://localhost:9222/api/v1/news_collector/task_logs?target_id=...）
+```bash
+curl -X GET "http://localhost:9222/api/v1/news_collector/task_logs?target_id=tgt_daily_energy&page=1&page_size=50" \
+    -H "Authorization: Bearer <API_KEY>"
 ```
 
 #### 4.3.1 爬取新闻 `/crawl`

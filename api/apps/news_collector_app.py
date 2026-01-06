@@ -554,3 +554,28 @@ async def run_targets_web():
 
     except Exception as e:
         return server_error_response(e)
+
+
+# ========== 目标运行记录（task_logs，登录态） ==========
+
+
+@manager.route("/task_logs", methods=["GET"])  # noqa: F821
+@login_required
+def list_task_logs_web():
+    """分页查看爬虫目标的运行记录，用于前端展示“最近运行/失败原因/参数快照”。"""
+    try:
+        page = int(request.args.get("page", 1))
+        page_size = int(request.args.get("page_size", 50))
+        status = request.args.get("status")
+        target_id = request.args.get("target_id")
+
+        logs, total = CrawlTaskLogService.list_by_tenant(
+            tenant_id=current_user.id,
+            target_id=target_id,
+            status=status,
+            page=page,
+            page_size=page_size,
+        )
+        return get_json_result(data={"logs": logs, "total": total, "page": page, "page_size": page_size})
+    except Exception as e:
+        return server_error_response(e)
