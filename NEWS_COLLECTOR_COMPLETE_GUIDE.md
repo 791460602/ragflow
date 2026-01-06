@@ -291,6 +291,93 @@ NEWS_COLLECTOR_CONFIG = {
 
 ### 4.3 接口详情
 
+#### 4.3.0 前端接入速览（新增爬虫目标）
+
+- 为什么需要目标（target）：把“要爬的源 + 参数 + 可选知识库/解析开关”持久化，便于前端做一次配置、多次一键运行，并记录 `crawl_task_log` 以便排障与审计。
+- 表模型（需迁移/建表）：`crawl_group`(分组)、`crawl_target`(目标定义：绑定 source_id，可选 start_url/kb_id/parse、max_depth、max_pages_per_source、max_crawl_pages_per_source、status)、`crawl_task_log`(运行记录：run_type/status/时间戳/错误信息/params)。
+- 路由前缀（很关键，前端通常会踩坑）：
+    - Web 登录态：`/v1/news_collector`（例如 `http://localhost:9222/v1/news_collector`）
+    - SDK Token：`/api/v1`（例如 `http://localhost:9222/api/v1`，端点本身带 `/news_collector/...`）
+- 端点（写法以下均为“相对各自前缀”的路径）：
+    - Web 登录态（cookie/session，login_required）：
+        - `GET/POST/PUT/DELETE /target_groups`
+        - `GET/POST/PUT/DELETE /targets`
+        - `POST /targets/run`
+    - SDK Token（Bearer token）：
+        - `GET/POST/PUT/DELETE /news_collector/target_groups`
+        - `GET/POST/PUT/DELETE /news_collector/targets`
+        - `POST /news_collector/targets/run`
+- 旧接口仍可用（立即运行）：`/news_collector/crawl_from_post`、`/news_collector/topic_search`，Web 侧继续保留 `/crawl_from_post`、`/topic_search`。
+- 前端最小必填：
+    - 创建目标：`name`、`source_id`，可选 `group_id`、`kb_id`、`parse`（默认 false）、`max_depth`(2)、`max_pages_per_source`(50)、`max_crawl_pages_per_source`(100)。
+    - 运行目标：只需传 `target_ids` 数组，后端按目标里的参数执行并记录 `crawl_task_log`。
+- 建议：
+    - 参数默认值由后端填充，前端只露出必填项，减少前端计算与校验；业务校验（租户归属、kb 访问权限、source 归属）已在后端处理（`kb_id` 会校验可访问）。
+    - 列表页可展示 `status`、`kb_id`、`max_pages_per_source`；详情页可提供“一键运行”调用 `/targets/run`。
+    - 发布前务必执行迁移/建表，避免缺表导致 500。
+
+示例：登录态创建目标（POST /v1/news_collector/targets）
+```json
+{
+    "name": "能源部官网日常爬取",
+    "source_id": "src_123",
+    "group_id": "grp_energy",
+    "kb_id": "kb_policy",
+    "parse": false,
+    "max_depth": 2,
+    "max_pages_per_source": 30,
+    "max_crawl_pages_per_source": 80,
+    "remark": "保持轻量，解析由后置管道处理"
+}
+```
+
+示例：登录态运行多个目标（POST /v1/news_collector/targets/run）
+```json
+{
+    "target_ids": ["tgt_daily_energy", "tgt_daily_market"]
+}
+```
+返回示例：
+```json
+{
+    "code": 0,
+    "message": "success",
+    "data": {
+        "dispatched": [
+            {"target_id": "tgt_daily_energy", "log_id": "log_1", "source_id": "src_123"},
+            {"target_id": "tgt_daily_market", "log_id": "log_2", "source_id": "src_456"}
+        ],
+        "count": 2
+    }
+}
+```
+
+示例：SDK Token 创建目标（curl，POST http://localhost:9222/api/v1/news_collector/targets）
+```bash
+curl -X POST "http://localhost:9222/api/v1/news_collector/targets" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer <API_KEY>" \
+    -d '{
+        "name": "能源部官网日常爬取",
+        "source_id": "src_123",
+        "group_id": "grp_energy",
+        "kb_id": "kb_policy",
+        "parse": false,
+        "max_depth": 2,
+        "max_pages_per_source": 30,
+        "max_crawl_pages_per_source": 80,
+        "remark": "保持轻量，解析由后置管道处理"
+    }'
+```
+
+示例：SDK Token 运行多个目标（curl，POST http://localhost:9222/api/v1/news_collector/targets/run）
+```bash
+curl -X POST "http://localhost:9222/api/v1/news_collector/targets/run" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer <API_KEY>" \
+    -d '{"target_ids": ["tgt_daily_energy", "tgt_daily_market"]}'
+```
+
 #### 4.3.1 爬取新闻 `/crawl`
 
 **请求方式**: `POST`

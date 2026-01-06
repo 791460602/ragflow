@@ -18,7 +18,7 @@ import traceback
 from datetime import datetime
 from typing import Dict, Optional, Any, List
 
-from api.db.db_models import NewsSource, NewsTask, NewsContent
+from api.db.db_models import NewsSource, NewsTask, NewsContent, CrawlGroup, CrawlTarget, CrawlTaskLog
 from api.db.services.common_service import CommonService
 from api.db.services.document_service import DocumentService
 from api.db.services.knowledgebase_service import KnowledgebaseService
@@ -40,8 +40,10 @@ class NewsSourceService(CommonService):
     ):
         """根据租户ID获取新闻源列表"""
 
-        # 修改: 默认查询条件增加了 status != 'deleted'
-        query = cls.model.select().where((cls.model.tenant_id == tenant_id) & (cls.model.status != "deleted"))
+        # 默认过滤 deleted，但允许显式查询 deleted 记录
+        query = cls.model.select().where(cls.model.tenant_id == tenant_id)
+        if status is None:
+            query = query.where(cls.model.status != "deleted")
 
         if name:
             query = query.where(cls.model.name.contains(name))
@@ -402,15 +404,47 @@ class NewsContentService(CommonService):
             print(f"[DB Service] 跳过：URL '{original_url}' 的内容为空。")
             return None
 
+        def _normalize_publish_time(raw_time: Any) -> Optional[int]:
+            """将各种时间格式转换为毫秒级时间戳，失败则返回None。"""
+            if raw_time is None:
+                return None
+            try:
+                # datetime 直接转毫秒
+                if isinstance(raw_time, datetime):
+                    return int(raw_time.timestamp() * 1000)
+
+                # 数值或数字字符串
+                if isinstance(raw_time, (int, float)) or (isinstance(raw_time, str) and raw_time.strip().isdigit()):
+                    val = int(float(raw_time))
+                    # 判断是秒还是毫秒
+                    return val if val > 10**12 else val * 1000
+
+                if isinstance(raw_time, str):
+                    cleaned = raw_time.strip()
+                    # 尝试 ISO / 常见日期格式
+                    for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%Y/%m/%d", "%Y/%m/%d %H:%M:%S"]:
+                        try:
+                            return int(datetime.strptime(cleaned, fmt).timestamp() * 1000)
+                        except Exception:
+                            continue
+                    # 尝试 fromisoformat (支持带T的格式)
+                    try:
+                        return int(datetime.fromisoformat(cleaned).timestamp() * 1000)
+                    except Exception:
+                        return None
+            except Exception:
+                return None
+            return None
+
         try:
-            # 1. 基于 URL 的去重检查
-            if cls.model.select().where(cls.model.original_url == original_url).exists():
+            # 1. 基于 URL 的去重检查（按租户隔离）
+            if cls.model.select().where((cls.model.original_url == original_url) & (cls.model.tenant_id == tenant_id)).exists():
                 print(f"[DB Service] 跳过：URL '{original_url}' 已存在于数据库中。")
                 return None
 
             # 2. 基于内容哈希的去重检查
             content_hash = hashlib.sha256(content_text.encode("utf-8")).hexdigest()
-            if cls.check_duplicate(content_hash):
+            if cls.check_duplicate(content_hash, tenant_id=tenant_id):
                 print(f"[DB Service] 跳过：内容哈希值重复 (URL: {original_url})。")
                 return None
 
@@ -475,7 +509,7 @@ class NewsContentService(CommonService):
                 "title": article_data.get("title", "无标题"),
                 "content": content_text,
                 "author": article_data.get("author"),
-                "publish_time": article_data.get("publication_time"),  # 键名来自RecursiveCrawl4AI
+                "publish_time": _normalize_publish_time(article_data.get("publication_time")),  # 键名来自RecursiveCrawl4AI
                 "fetch_time": int(datetime.now().timestamp() * 1000),
                 "category": article_data.get("category"),
                 "tags": article_data.get("tags", []),
@@ -520,11 +554,14 @@ class NewsContentService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def check_duplicate(cls, content_hash: str) -> bool:
-        """检查内容是否重复"""
+    def check_duplicate(cls, content_hash: str, tenant_id: Optional[str] = None) -> bool:
+        """检查内容是否重复，支持按租户隔离"""
         if not content_hash:
             return False
-        return cls.model.select().where(cls.model.content_hash == content_hash).exists()
+        query = cls.model.select().where(cls.model.content_hash == content_hash)
+        if tenant_id:
+            query = query.where(cls.model.tenant_id == tenant_id)
+        return query.exists()
 
     @classmethod
     def to_dict(cls, obj):
@@ -598,3 +635,202 @@ class NewsContentService(CommonService):
         return deleted_rows
 
     # ^^^^^^^^^^^ 添加结束 ^^^^^^^^^^^
+
+
+# =============================================================
+# 爬虫目标管理服务
+# =============================================================
+
+
+class CrawlGroupService(CommonService):
+    model = CrawlGroup
+
+    @classmethod
+    @DB.connection_context()
+    def list_by_tenant(cls, tenant_id: str, status: Optional[str] = None, page: int = 1, page_size: int = 50):
+        query = cls.model.select().where(cls.model.tenant_id == tenant_id)
+        if status:
+            query = query.where(cls.model.status == status)
+        else:
+            query = query.where(cls.model.status != "deleted")
+        total = query.count()
+        rows = query.order_by(cls.model.create_time.desc()).paginate(page, page_size)
+        return [cls.to_dict(r) for r in rows], total
+
+    @classmethod
+    @DB.connection_context()
+    def create_group(cls, tenant_id: str, name: str, description: str = None):
+        group = cls.model.create(id=get_uuid(), tenant_id=tenant_id, name=name, description=description, status="active")
+        return cls.to_dict(group)
+
+    @classmethod
+    @DB.connection_context()
+    def update_group(cls, tenant_id: str, group_id: str, **kwargs):
+        group = cls.model.select().where(cls.model.id == group_id).first()
+        if not group or group.tenant_id != tenant_id:
+            raise ValueError("Group not found")
+        updates = {}
+        for field in ["name", "description", "status"]:
+            if field in kwargs and kwargs[field] is not None:
+                updates[field] = kwargs[field]
+        if updates:
+            cls.model.update(**updates).where(cls.model.id == group_id).execute()
+        group = cls.model.select().where(cls.model.id == group_id).first()
+        return cls.to_dict(group)
+
+    @classmethod
+    @DB.connection_context()
+    def soft_delete(cls, tenant_id: str, group_id: str):
+        cls.model.update(status="deleted").where((cls.model.id == group_id) & (cls.model.tenant_id == tenant_id)).execute()
+
+
+class CrawlTargetService(CommonService):
+    model = CrawlTarget
+
+    @classmethod
+    @DB.connection_context()
+    def list_by_tenant(cls, tenant_id: str, group_id: Optional[str] = None, status: Optional[str] = None, page: int = 1, page_size: int = 50):
+        query = cls.model.select().where(cls.model.tenant_id == tenant_id)
+        if group_id:
+            query = query.where(cls.model.group_id == group_id)
+        if status:
+            query = query.where(cls.model.status == status)
+        else:
+            query = query.where(cls.model.status != "deleted")
+        total = query.count()
+        rows = query.order_by(cls.model.create_time.desc()).paginate(page, page_size)
+        return [cls.to_dict(r) for r in rows], total
+
+    @classmethod
+    @DB.connection_context()
+    def get_by_ids(cls, tenant_id: str, target_ids: List[str]) -> List[dict]:
+        if not target_ids:
+            return []
+        query = cls.model.select().where((cls.model.tenant_id == tenant_id) & (cls.model.id.in_(target_ids)) & (cls.model.status != "deleted"))
+        return [cls.to_dict(r) for r in query]
+
+    @classmethod
+    @DB.connection_context()
+    def create_target(
+        cls,
+        tenant_id: str,
+        name: str,
+        source_id: Optional[str] = None,
+        group_id: Optional[str] = None,
+        start_url: Optional[str] = None,
+        kb_id: Optional[str] = None,
+        parse: bool = False,
+        max_depth: int = 2,
+        max_pages_per_source: int = 50,
+        max_crawl_pages_per_source: int = 100,
+        status: str = "active",
+        remark: Optional[str] = None,
+    ):
+        # 验证分组归属
+        if group_id:
+            grp = CrawlGroup.select().where(CrawlGroup.id == group_id).first()
+            if not grp or grp.tenant_id != tenant_id:
+                raise ValueError("Invalid group_id")
+
+        # 验证新闻源归属
+        if source_id:
+            src = NewsSource.select().where(NewsSource.id == source_id).first()
+            if not src or src.tenant_id != tenant_id:
+                raise ValueError("Invalid source_id")
+
+        # 验证知识库归属/权限（如果指定）
+        if kb_id and not KnowledgebaseService.accessible(kb_id, tenant_id):
+            raise ValueError("Invalid kb_id")
+
+        target = cls.model.create(
+            id=get_uuid(),
+            tenant_id=tenant_id,
+            name=name,
+            group_id=group_id,
+            source_id=source_id,
+            start_url=start_url,
+            kb_id=kb_id,
+            parse=parse,
+            max_depth=max_depth,
+            max_pages_per_source=max_pages_per_source,
+            max_crawl_pages_per_source=max_crawl_pages_per_source,
+            status=status,
+            remark=remark,
+        )
+        return cls.to_dict(target)
+
+    @classmethod
+    @DB.connection_context()
+    def update_target(cls, tenant_id: str, target_id: str, **kwargs):
+        target = cls.model.select().where(cls.model.id == target_id).first()
+        if not target or target.tenant_id != tenant_id:
+            raise ValueError("Target not found")
+
+        updates = {}
+        for field in [
+            "name",
+            "group_id",
+            "source_id",
+            "start_url",
+            "kb_id",
+            "parse",
+            "max_depth",
+            "max_pages_per_source",
+            "max_crawl_pages_per_source",
+            "status",
+            "remark",
+            "schedule_cron",
+        ]:
+            if field in kwargs and kwargs[field] is not None:
+                updates[field] = kwargs[field]
+
+        # 校验可能被更新的关联字段
+        if "group_id" in updates and updates["group_id"]:
+            grp = CrawlGroup.select().where(CrawlGroup.id == updates["group_id"]).first()
+            if not grp or grp.tenant_id != tenant_id:
+                raise ValueError("Invalid group_id")
+        if "source_id" in updates and updates["source_id"]:
+            src = NewsSource.select().where(NewsSource.id == updates["source_id"]).first()
+            if not src or src.tenant_id != tenant_id:
+                raise ValueError("Invalid source_id")
+        if "kb_id" in updates and updates["kb_id"]:
+            if not KnowledgebaseService.accessible(updates["kb_id"], tenant_id):
+                raise ValueError("Invalid kb_id")
+
+        if updates:
+            cls.model.update(**updates).where(cls.model.id == target_id).execute()
+
+        target = cls.model.select().where(cls.model.id == target_id).first()
+        return cls.to_dict(target)
+
+    @classmethod
+    @DB.connection_context()
+    def soft_delete(cls, tenant_id: str, target_id: str):
+        cls.model.update(status="deleted").where((cls.model.id == target_id) & (cls.model.tenant_id == tenant_id)).execute()
+
+
+class CrawlTaskLogService(CommonService):
+    model = CrawlTaskLog
+
+    @classmethod
+    @DB.connection_context()
+    def create_log(cls, tenant_id: str, target_id: str, status: str = "dispatched", run_type: str = "manual", params: Optional[dict] = None):
+        log = cls.model.create(
+            id=get_uuid(),
+            tenant_id=tenant_id,
+            target_id=target_id,
+            status=status,
+            run_type=run_type,
+            started_at=int(datetime.now().timestamp() * 1000),
+            params=params or {},
+        )
+        return cls.to_dict(log)
+
+    @classmethod
+    @DB.connection_context()
+    def mark(cls, log_id: str, status: str, error_message: str = None):
+        updates = {"status": status, "finished_at": int(datetime.now().timestamp() * 1000)}
+        if error_message:
+            updates["error_message"] = error_message
+        cls.model.update(**updates).where(cls.model.id == log_id).execute()
+

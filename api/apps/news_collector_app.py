@@ -28,7 +28,13 @@
 from quart import request
 from api.apps import login_required, current_user
 from api.utils.api_utils import get_json_result, server_error_response, validate_request
-from api.db.services.news_service import NewsSourceService, NewsContentService
+from api.db.services.news_service import (
+    NewsSourceService,
+    NewsContentService,
+    CrawlGroupService,
+    CrawlTargetService,
+    CrawlTaskLogService,
+)
 from api.db.services.knowledgebase_service import KnowledgebaseService
 from api.db.services.user_service import TenantService
 import threading
@@ -369,6 +375,182 @@ def delete_all_contents_web():
     try:
         deleted_count = NewsContentService.delete_by_tenant_id(current_user.id)
         return get_json_result(message=f"成功删除 {deleted_count} 条内容记录。抓取历史已重置。")
+
+    except Exception as e:
+        return server_error_response(e)
+
+
+# ========== 爬虫目标分组管理 (登录态) ==========
+
+
+@manager.route("/target_groups", methods=["GET"])  # noqa: F821
+@login_required
+def list_target_groups_web():
+    try:
+        page = int(request.args.get("page", 1))
+        page_size = int(request.args.get("page_size", 50))
+        status = request.args.get("status")
+        groups, total = CrawlGroupService.list_by_tenant(tenant_id=current_user.id, status=status, page=page, page_size=page_size)
+        return get_json_result(data={"groups": groups, "total": total, "page": page, "page_size": page_size})
+    except Exception as e:
+        return server_error_response(e)
+
+
+@manager.route("/target_groups", methods=["POST"])  # noqa: F821
+@login_required
+async def create_target_group_web():
+    try:
+        req = await request.get_json()
+        name = req.get("name") if isinstance(req, dict) else None
+        description = req.get("description") if isinstance(req, dict) else None
+        if not name:
+            return get_json_result(code=400, message="name 不能为空")
+        group = CrawlGroupService.create_group(tenant_id=current_user.id, name=name, description=description)
+        return get_json_result(data={"group": group})
+    except Exception as e:
+        return server_error_response(e)
+
+
+@manager.route("/target_groups/<group_id>", methods=["PUT"])  # noqa: F821
+@login_required
+async def update_target_group_web(group_id):
+    try:
+        req = await request.get_json()
+        group = CrawlGroupService.update_group(tenant_id=current_user.id, group_id=group_id, **(req or {}))
+        return get_json_result(data={"group": group})
+    except ValueError as ve:
+        return get_json_result(code=400, message=str(ve))
+    except Exception as e:
+        return server_error_response(e)
+
+
+@manager.route("/target_groups/<group_id>", methods=["DELETE"])  # noqa: F821
+@login_required
+def delete_target_group_web(group_id):
+    try:
+        CrawlGroupService.soft_delete(tenant_id=current_user.id, group_id=group_id)
+        return get_json_result(message="删除成功")
+    except Exception as e:
+        return server_error_response(e)
+
+
+# ========== 爬虫目标管理 (登录态) ==========
+
+
+@manager.route("/targets", methods=["GET"])  # noqa: F821
+@login_required
+def list_targets_web():
+    try:
+        page = int(request.args.get("page", 1))
+        page_size = int(request.args.get("page_size", 50))
+        status = request.args.get("status")
+        group_id = request.args.get("group_id")
+        targets, total = CrawlTargetService.list_by_tenant(tenant_id=current_user.id, group_id=group_id, status=status, page=page, page_size=page_size)
+        return get_json_result(data={"targets": targets, "total": total, "page": page, "page_size": page_size})
+    except Exception as e:
+        return server_error_response(e)
+
+
+@manager.route("/targets", methods=["POST"])  # noqa: F821
+@login_required
+async def create_target_web():
+    try:
+        req = await request.get_json()
+        if not isinstance(req, dict):
+            return get_json_result(code=400, message="请求体必须是 JSON 对象")
+        name = req.get("name")
+        source_id = req.get("source_id")
+        if not name:
+            return get_json_result(code=400, message="name 不能为空")
+        if not source_id:
+            return get_json_result(code=400, message="source_id 不能为空")
+
+        target = CrawlTargetService.create_target(
+            tenant_id=current_user.id,
+            name=name,
+            source_id=source_id,
+            group_id=req.get("group_id"),
+            start_url=req.get("start_url"),
+            kb_id=req.get("kb_id"),
+            parse=req.get("parse", False),
+            max_depth=int(req.get("max_depth", 2)),
+            max_pages_per_source=int(req.get("max_pages_per_source", 50)),
+            max_crawl_pages_per_source=int(req.get("max_crawl_pages_per_source", 100)),
+            status=req.get("status", "active"),
+            remark=req.get("remark"),
+        )
+        return get_json_result(data={"target": target})
+    except ValueError as ve:
+        return get_json_result(code=400, message=str(ve))
+    except Exception as e:
+        return server_error_response(e)
+
+
+@manager.route("/targets/<target_id>", methods=["PUT"])  # noqa: F821
+@login_required
+async def update_target_web(target_id):
+    try:
+        req = await request.get_json()
+        target = CrawlTargetService.update_target(tenant_id=current_user.id, target_id=target_id, **(req or {}))
+        return get_json_result(data={"target": target})
+    except ValueError as ve:
+        return get_json_result(code=400, message=str(ve))
+    except Exception as e:
+        return server_error_response(e)
+
+
+@manager.route("/targets/<target_id>", methods=["DELETE"])  # noqa: F821
+@login_required
+def delete_target_web(target_id):
+    try:
+        CrawlTargetService.soft_delete(tenant_id=current_user.id, target_id=target_id)
+        return get_json_result(message="删除成功")
+    except Exception as e:
+        return server_error_response(e)
+
+
+@manager.route("/targets/run", methods=["POST"])  # noqa: F821
+@login_required
+async def run_targets_web():
+    """触发选定爬虫目标的即时抓取，使用当前登录租户的配置。"""
+    try:
+        req = await request.get_json()
+        target_ids = req.get("target_ids") if isinstance(req, dict) else None
+        if not target_ids or not isinstance(target_ids, list):
+            return get_json_result(code=400, message="target_ids 必须是非空数组")
+
+        targets = CrawlTargetService.get_by_ids(tenant_id=current_user.id, target_ids=target_ids)
+        if not targets:
+            return get_json_result(code=404, message="未找到有效的爬虫目标")
+
+        dispatched = []
+        for tgt in targets:
+            if tgt.get("status") == "deleted" or not tgt.get("source_id"):
+                continue
+            depth = int(tgt.get("max_depth", 2))
+            max_pages = int(tgt.get("max_pages_per_source", 50))
+            kb_id = tgt.get("kb_id")
+            parse = bool(tgt.get("parse", False))
+
+            log = CrawlTaskLogService.create_log(
+                tenant_id=current_user.id,
+                target_id=tgt["id"],
+                status="dispatched",
+                run_type="manual",
+                params={"depth": depth, "max_pages_per_source": max_pages, "kb_id": kb_id, "parse": parse, "source_id": tgt.get("source_id")},
+            )
+
+            from api.apps.sdk.news_collector import _background_crawl_from_post_wrapper
+
+            thread = threading.Thread(target=_background_crawl_from_post_wrapper, args=(current_user.id, [tgt.get("source_id")], depth, max_pages, kb_id, parse))
+            thread.start()
+
+            dispatched.append({"target_id": tgt["id"], "log_id": log.get("id"), "source_id": tgt.get("source_id")})
+
+        if not dispatched:
+            return get_json_result(code=400, message="未找到可运行的目标，可能已删除或缺少 source_id")
+
+        return get_json_result(data={"dispatched": dispatched, "count": len(dispatched)})
 
     except Exception as e:
         return server_error_response(e)

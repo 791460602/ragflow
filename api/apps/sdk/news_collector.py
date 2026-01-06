@@ -25,7 +25,7 @@
 
 from quart import request, Blueprint
 from api.utils.api_utils import get_json_result, server_error_response, token_required
-from api.db.services.news_service import NewsSourceService, NewsContentService
+from api.db.services.news_service import NewsSourceService, NewsContentService, CrawlGroupService, CrawlTargetService, CrawlTaskLogService
 from api.db.services.knowledgebase_service import KnowledgebaseService
 from api.db.services.document_service import DocumentService
 from api.db.services.file_service import FileService
@@ -1931,6 +1931,174 @@ def delete_all_contents(tenant_id):
     try:
         deleted_count = NewsContentService.delete_by_tenant_id(tenant_id)
         return get_json_result(message=f"成功删除 {deleted_count} 条内容记录。抓取历史已重置。")
+
+    except Exception as e:
+        return server_error_response(e)
+
+
+# ========== 爬虫目标分组管理 ==========
+
+
+@manager.route("/news_collector/target_groups", methods=["GET"])
+@token_required
+def list_target_groups(tenant_id):
+    try:
+        page = int(request.args.get("page", 1))
+        page_size = int(request.args.get("page_size", 50))
+        status = request.args.get("status")
+        groups, total = CrawlGroupService.list_by_tenant(tenant_id=tenant_id, status=status, page=page, page_size=page_size)
+        return get_json_result(data={"groups": groups, "total": total, "page": page, "page_size": page_size})
+    except Exception as e:
+        return server_error_response(e)
+
+
+@manager.route("/news_collector/target_groups", methods=["POST"])
+@token_required
+def create_target_group(tenant_id):
+    try:
+        req = request.get_json()
+        name = req.get("name") if isinstance(req, dict) else None
+        description = req.get("description") if isinstance(req, dict) else None
+        if not name:
+            return get_json_result(code=400, message="name 不能为空")
+        group = CrawlGroupService.create_group(tenant_id=tenant_id, name=name, description=description)
+        return get_json_result(data={"group": group})
+    except Exception as e:
+        return server_error_response(e)
+
+
+@manager.route("/news_collector/target_groups/<group_id>", methods=["PUT"])
+@token_required
+def update_target_group(tenant_id, group_id):
+    try:
+        req = request.get_json()
+        group = CrawlGroupService.update_group(tenant_id=tenant_id, group_id=group_id, **(req or {}))
+        return get_json_result(data={"group": group})
+    except Exception as e:
+        return server_error_response(e)
+
+
+@manager.route("/news_collector/target_groups/<group_id>", methods=["DELETE"])
+@token_required
+def delete_target_group(tenant_id, group_id):
+    try:
+        CrawlGroupService.soft_delete(tenant_id=tenant_id, group_id=group_id)
+        return get_json_result(message="删除成功")
+    except Exception as e:
+        return server_error_response(e)
+
+
+# ========== 爬虫目标管理 ==========
+
+
+@manager.route("/news_collector/targets", methods=["GET"])
+@token_required
+def list_targets(tenant_id):
+    try:
+        page = int(request.args.get("page", 1))
+        page_size = int(request.args.get("page_size", 50))
+        status = request.args.get("status")
+        group_id = request.args.get("group_id")
+        targets, total = CrawlTargetService.list_by_tenant(tenant_id=tenant_id, group_id=group_id, status=status, page=page, page_size=page_size)
+        return get_json_result(data={"targets": targets, "total": total, "page": page, "page_size": page_size})
+    except Exception as e:
+        return server_error_response(e)
+
+
+@manager.route("/news_collector/targets", methods=["POST"])
+@token_required
+def create_target(tenant_id):
+    try:
+        req = request.get_json()
+        if not isinstance(req, dict):
+            return get_json_result(code=400, message="请求体必须是 JSON 对象")
+        name = req.get("name")
+        source_id = req.get("source_id")
+        if not name:
+            return get_json_result(code=400, message="name 不能为空")
+        if not source_id:
+            return get_json_result(code=400, message="source_id 不能为空")
+
+        target = CrawlTargetService.create_target(
+            tenant_id=tenant_id,
+            name=name,
+            source_id=source_id,
+            group_id=req.get("group_id"),
+            start_url=req.get("start_url"),
+            kb_id=req.get("kb_id"),
+            parse=req.get("parse", False),
+            max_depth=int(req.get("max_depth", 2)),
+            max_pages_per_source=int(req.get("max_pages_per_source", 50)),
+            max_crawl_pages_per_source=int(req.get("max_crawl_pages_per_source", 100)),
+            status=req.get("status", "active"),
+            remark=req.get("remark"),
+        )
+        return get_json_result(data={"target": target})
+    except Exception as e:
+        return server_error_response(e)
+
+
+@manager.route("/news_collector/targets/<target_id>", methods=["PUT"])
+@token_required
+def update_target(tenant_id, target_id):
+    try:
+        req = request.get_json()
+        target = CrawlTargetService.update_target(tenant_id=tenant_id, target_id=target_id, **(req or {}))
+        return get_json_result(data={"target": target})
+    except Exception as e:
+        return server_error_response(e)
+
+
+@manager.route("/news_collector/targets/<target_id>", methods=["DELETE"])
+@token_required
+def delete_target(tenant_id, target_id):
+    try:
+        CrawlTargetService.soft_delete(tenant_id=tenant_id, target_id=target_id)
+        return get_json_result(message="删除成功")
+    except Exception as e:
+        return server_error_response(e)
+
+
+@manager.route("/news_collector/targets/run", methods=["POST"])
+@token_required
+def run_targets(tenant_id):
+    """触发选定爬虫目标的即时抓取，按目标配置启动现有爬虫流程"""
+    try:
+        req = request.get_json()
+        target_ids = req.get("target_ids") if isinstance(req, dict) else None
+        if not target_ids or not isinstance(target_ids, list):
+            return get_json_result(code=400, message="target_ids 必须是非空数组")
+
+        targets = CrawlTargetService.get_by_ids(tenant_id=tenant_id, target_ids=target_ids)
+        if not targets:
+            return get_json_result(code=404, message="未找到有效的爬虫目标")
+
+        dispatched = []
+        for tgt in targets:
+            if tgt.get("status") == "deleted" or not tgt.get("source_id"):
+                continue
+            depth = int(tgt.get("max_depth", 2))
+            max_pages = int(tgt.get("max_pages_per_source", 50))
+            kb_id = tgt.get("kb_id")
+            parse = bool(tgt.get("parse", False))
+
+            log = CrawlTaskLogService.create_log(
+                tenant_id=tenant_id,
+                target_id=tgt["id"],
+                status="dispatched",
+                run_type="manual",
+                params={"depth": depth, "max_pages_per_source": max_pages, "kb_id": kb_id, "parse": parse, "source_id": tgt.get("source_id")},
+            )
+
+            thread = threading.Thread(target=_background_crawl_from_post_wrapper, args=(tenant_id, [tgt.get("source_id")], depth, max_pages, kb_id, parse))
+            thread.start()
+
+            dispatched.append({"target_id": tgt["id"], "log_id": log.get("id"), "source_id": tgt.get("source_id")})
+
+        if not dispatched:
+            return get_json_result(code=400, message="未找到可运行的目标，可能已删除或缺少 source_id")
+
+        return get_json_result(data={"dispatched": dispatched, "count": len(dispatched)})
 
     except Exception as e:
         return server_error_response(e)

@@ -1210,6 +1210,66 @@ class NewsContent(DataBaseModel):
         db_table = "news_content"
 
 
+# ======================
+# 爬虫目标管理模型
+# ======================
+
+
+class CrawlGroup(DataBaseModel):
+    """爬虫目标分组，用于归类不同的目标集合"""
+
+    id = CharField(max_length=32, primary_key=True)
+    tenant_id = CharField(max_length=32, null=False, help_text="租户ID", index=True)
+    name = CharField(max_length=128, null=False, help_text="分组名称", index=True)
+    description = TextField(null=True, help_text="分组描述")
+    status = CharField(max_length=16, null=False, default="active", help_text="状态: active|disabled|deleted", index=True)
+
+    class Meta:
+        db_table = "crawl_group"
+
+
+class CrawlTarget(DataBaseModel):
+    """爬虫目标定义，绑定到具体新闻源或自定义起始URL"""
+
+    id = CharField(max_length=32, primary_key=True)
+    tenant_id = CharField(max_length=32, null=False, help_text="租户ID", index=True)
+    name = CharField(max_length=128, null=False, help_text="目标名称", index=True)
+    group_id = CharField(max_length=32, null=True, help_text="分组ID", index=True)
+    source_id = CharField(max_length=32, null=True, help_text="绑定的新闻源ID", index=True)
+    start_url = TextField(null=True, help_text="可选的自定义起始URL")
+    kb_id = CharField(max_length=32, null=True, help_text="可选的目标知识库ID", index=True)
+    parse = BooleanField(default=False, help_text="抓取后是否解析入库")
+
+    max_depth = IntegerField(default=2, help_text="抓取深度")
+    max_pages_per_source = IntegerField(default=50, help_text="每源最大收集篇数")
+    max_crawl_pages_per_source = IntegerField(default=100, help_text="每源最大爬取页数")
+
+    schedule_cron = CharField(max_length=64, null=True, help_text="预留的cron表达式")
+    last_run_time = BigIntegerField(null=True, help_text="上次运行时间戳", index=True)
+    status = CharField(max_length=16, null=False, default="active", help_text="状态: active|disabled|deleted", index=True)
+    remark = TextField(null=True, help_text="备注")
+
+    class Meta:
+        db_table = "crawl_target"
+
+
+class CrawlTaskLog(DataBaseModel):
+    """爬虫目标的执行记录，便于追踪任务发起与结果"""
+
+    id = CharField(max_length=32, primary_key=True)
+    tenant_id = CharField(max_length=32, null=False, help_text="租户ID", index=True)
+    target_id = CharField(max_length=32, null=False, help_text="关联的爬虫目标ID", index=True)
+    status = CharField(max_length=16, null=False, default="dispatched", help_text="dispatched|running|completed|failed", index=True)
+    run_type = CharField(max_length=16, null=False, default="manual", help_text="manual|scheduled", index=True)
+    started_at = BigIntegerField(null=True, help_text="任务开始时间戳", index=True)
+    finished_at = BigIntegerField(null=True, help_text="任务结束时间戳", index=True)
+    error_message = TextField(null=True, help_text="错误信息")
+    params = JSONField(null=False, default={}, help_text="启动参数快照")
+
+    class Meta:
+        db_table = "crawl_task_log"
+
+
 def migrate_db():
     logging.disable(logging.ERROR)
     migrator = DatabaseMigrator[settings.DATABASE_TYPE.upper()].value(DB)
