@@ -108,12 +108,43 @@ def list_news_source_groups():
 
 @manager.route("/sources", methods=["POST"])  # noqa: F821
 @login_required
-@validate_request("name", "url")
 async def create_news_source():
-    """创建新闻源"""
+    """创建新闻源（支持单个或批量）"""
     try:
         req = await request.get_json()
 
+        # 支持数组批量创建
+        if isinstance(req, list):
+            created = []
+            errors = []
+            for idx, item in enumerate(req):
+                # 验证必填字段
+                if not item.get("name") or not item.get("url"):
+                    errors.append({"index": idx, "error": "缺少必填字段 name 或 url", "data": item})
+                    continue
+                try:
+                    source = NewsSourceService.create_source(
+                        tenant_id=current_user.id, 
+                        user_id=current_user.id, 
+                        **item
+                    )
+                    created.append(source)
+                except ValueError as ve:
+                    errors.append({"index": idx, "error": str(ve), "data": item})
+                except Exception as e:
+                    errors.append({"index": idx, "error": str(e), "data": item})
+            
+            return get_json_result(data={
+                "sources": created,
+                "created_count": len(created),
+                "errors": errors,
+                "error_count": len(errors)
+            })
+        
+        # 单个创建
+        if not req.get("name") or not req.get("url"):
+            return get_json_result(code=400, message="缺少必填字段 name 或 url")
+        
         try:
             source = NewsSourceService.create_source(tenant_id=current_user.id, user_id=current_user.id, **req)
             return get_json_result(data={"source": source})
@@ -542,7 +573,7 @@ async def run_targets_web():
 
             from api.apps.sdk.news_collector import _background_crawl_from_post_wrapper
 
-            thread = threading.Thread(target=_background_crawl_from_post_wrapper, args=(current_user.id, [tgt.get("source_id")], depth, max_pages, kb_id, parse))
+            thread = threading.Thread(target=_background_crawl_from_post_wrapper, args=(current_user.id, [tgt.get("source_id")], depth, max_pages, kb_id, parse, log.get("id")))
             thread.start()
 
             dispatched.append({"target_id": tgt["id"], "log_id": log.get("id"), "source_id": tgt.get("source_id")})

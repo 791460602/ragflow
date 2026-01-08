@@ -683,6 +683,26 @@ class CrawlGroupService(CommonService):
     def soft_delete(cls, tenant_id: str, group_id: str):
         cls.model.update(status="deleted").where((cls.model.id == group_id) & (cls.model.tenant_id == tenant_id)).execute()
 
+    @classmethod
+    def to_dict(cls, obj):
+        """转换为字典"""
+        if not obj:
+            return None
+
+        # 直接从模型对象创建字典
+        result = {}
+        for field_name in obj._meta.fields.keys():
+            field_value = getattr(obj, field_name, None)
+            result[field_name] = field_value
+
+        # 添加时间戳字段
+        if hasattr(obj, "create_time") and obj.create_time:
+            result["create_time"] = obj.create_time.isoformat() if hasattr(obj.create_time, "isoformat") else str(obj.create_time)
+        if hasattr(obj, "update_time") and obj.update_time:
+            result["update_time"] = obj.update_time.isoformat() if hasattr(obj.update_time, "isoformat") else str(obj.update_time)
+
+        return result
+
 
 class CrawlTargetService(CommonService):
     model = CrawlTarget
@@ -808,6 +828,28 @@ class CrawlTargetService(CommonService):
     def soft_delete(cls, tenant_id: str, target_id: str):
         cls.model.update(status="deleted").where((cls.model.id == target_id) & (cls.model.tenant_id == tenant_id)).execute()
 
+    @classmethod
+    def to_dict(cls, obj):
+        """转换为字典"""
+        if not obj:
+            return None
+
+        # 直接从模型对象创建字典
+        result = {}
+        for field_name in obj._meta.fields.keys():
+            field_value = getattr(obj, field_name, None)
+            result[field_name] = field_value
+
+        # 添加时间戳字段
+        if hasattr(obj, "create_time") and obj.create_time:
+            result["create_time"] = obj.create_time.isoformat() if hasattr(obj.create_time, "isoformat") else str(obj.create_time)
+        if hasattr(obj, "update_time") and obj.update_time:
+            result["update_time"] = obj.update_time.isoformat() if hasattr(obj.update_time, "isoformat") else str(obj.update_time)
+        if hasattr(obj, "last_run_time") and obj.last_run_time:
+            result["last_run_time"] = obj.last_run_time.isoformat() if hasattr(obj.last_run_time, "isoformat") else str(obj.last_run_time)
+
+        return result
+
 
 class CrawlTaskLogService(CommonService):
     model = CrawlTaskLog
@@ -853,4 +895,27 @@ class CrawlTaskLogService(CommonService):
         if error_message:
             updates["error_message"] = error_message
         cls.model.update(**updates).where(cls.model.id == log_id).execute()
+
+    @classmethod
+    def to_dict(cls, obj):
+        """转换为字典"""
+        if not obj:
+            return None
+
+        # 直接从模型对象创建字典
+        result = {}
+        for field_name in obj._meta.fields.keys():
+            field_value = getattr(obj, field_name, None)
+            result[field_name] = field_value
+
+        # 时间戳字段已经是整数（毫秒），前端会直接使用
+        # 不需要转换为 ISO 格式
+
+        # 确保JSON字段正确序列化
+        if hasattr(obj, "params") and obj.params:
+            result["params"] = obj.params
+        else:
+            result["params"] = {}
+
+        return result
 

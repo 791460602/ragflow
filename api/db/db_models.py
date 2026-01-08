@@ -1115,7 +1115,7 @@ class NewsSource(DataBaseModel):
     source_type = CharField(max_length=32, null=False, default="news", help_text="源类型: policy|news|other", index=True)
     region = CharField(max_length=64, null=True, help_text="所属地区，如广东省/国家", index=True)
     issuer = CharField(max_length=128, null=True, help_text="发布机构归一化名称，如广东省发展和改革委员会", index=True)
-    policy_theme = JSONField(null=False, default=[], help_text="该源主打的主题标签列表，如[分时电价]")
+    policy_theme = JSONField(null=True, default=[], help_text="该源主打的主题标签列表，如[分时电价]")
 
     # CCS配置
     fetch_config = JSONField(
