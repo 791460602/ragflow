@@ -18,7 +18,7 @@ import traceback
 from datetime import datetime
 from typing import Dict, Optional, Any, List
 
-from api.db.db_models import NewsSource, NewsTask, NewsContent, CrawlGroup, CrawlTarget, CrawlTaskLog
+from api.db.db_models import NewsSource, NewsTask, NewsContent, NewsVisitedUrl, CrawlGroup, CrawlTarget, CrawlTaskLog
 from api.db.services.common_service import CommonService
 from api.db.services.document_service import DocumentService
 from api.db.services.knowledgebase_service import KnowledgebaseService
@@ -637,6 +637,190 @@ class NewsContentService(CommonService):
     # ^^^^^^^^^^^ 添加结束 ^^^^^^^^^^^
 
 
+class NewsVisitedUrlService(CommonService):
+    """URL访问记录服务（避免重复爬取）"""
+
+    model = NewsVisitedUrl
+
+    @classmethod
+    def _url_hash(cls, url: str) -> str:
+        """生成URL哈希值"""
+        return hashlib.sha256(url.encode("utf-8")).hexdigest()
+
+    @classmethod
+    @DB.connection_context()
+    def is_visited(cls, tenant_id: str, url: str) -> bool:
+        """检查URL是否已访问"""
+        url_hash = cls._url_hash(url)
+        return cls.model.select().where((cls.model.tenant_id == tenant_id) & (cls.model.url_hash == url_hash)).exists()
+
+    @classmethod
+    @DB.connection_context()
+    def batch_check_visited(cls, tenant_id: str, urls: List[str]) -> dict:
+        """批量检查URL是否已访问
+
+        返回: {url: True/False}
+        """
+        if not urls:
+            return {}
+
+        url_hash_map = {url: cls._url_hash(url) for url in urls}
+        hashes = list(url_hash_map.values())
+
+        # 查询已存在的哈希
+        visited_hashes = set()
+        query = cls.model.select(cls.model.url_hash).where((cls.model.tenant_id == tenant_id) & (cls.model.url_hash.in_(hashes)))
+        for record in query:
+            visited_hashes.add(record.url_hash)
+
+        # 构建结果字典
+        result = {}
+        for url, url_hash in url_hash_map.items():
+            result[url] = url_hash in visited_hashes
+
+        return result
+
+    @classmethod
+    @DB.connection_context()
+    def record_visit(cls, tenant_id: str, url: str, source_id: str = None, is_policy: bool = False, collected: bool = False, failed: bool = False, title: str = None, page_hash: str = None):
+        """记录URL访问
+
+        如果URL已存在，则更新记录；否则创建新记录
+        """
+        url_hash = cls._url_hash(url)
+        import time
+
+        visited_at = int(time.time() * 1000)
+
+        # 检查是否已存在
+        existing = cls.model.select().where((cls.model.tenant_id == tenant_id) & (cls.model.url_hash == url_hash)).first()
+
+        if existing:
+            # 更新现有记录
+            updates = {"visited_at": visited_at, "is_policy": is_policy, "collected": collected, "failed": failed}
+            if title:
+                updates["title"] = title[:512]  # 截断标题
+            if page_hash:
+                updates["page_hash"] = page_hash
+            if source_id:
+                updates["source_id"] = source_id
+
+            cls.model.update(**updates).where(cls.model.id == existing.id).execute()
+            return existing.id
+        else:
+            # 创建新记录
+            record = cls.model.create(
+                id=get_uuid(),
+                tenant_id=tenant_id,
+                url=url[:1024],
+                url_hash=url_hash,
+                source_id=source_id,
+                visited_at=visited_at,
+                is_policy=is_policy,
+                collected=collected,
+                failed=failed,
+                title=title[:512] if title else None,
+                page_hash=page_hash,
+            )
+            return record.id
+
+    @classmethod
+    @DB.connection_context()
+    def batch_record_visits(cls, tenant_id: str, visits: List[dict]):
+        """批量记录URL访问
+
+        visits: [
+            {
+                "url": str,
+                "source_id": str (optional),
+                "is_policy": bool,
+                "collected": bool,
+                "failed": bool,
+                "title": str (optional),
+                "page_hash": str (optional)
+            },
+            ...
+        ]
+        """
+        if not visits:
+            return
+
+        import time
+
+        visited_at = int(time.time() * 1000)
+
+        # 准备批量插入数据
+        records_to_insert = []
+        for visit in visits:
+            url = visit["url"]
+            url_hash = cls._url_hash(url)
+
+            # 检查是否已存在（这里为了性能可以考虑先批量查询）
+            existing = cls.model.select().where((cls.model.tenant_id == tenant_id) & (cls.model.url_hash == url_hash)).first()
+
+            if not existing:
+                records_to_insert.append(
+                    {
+                        "id": get_uuid(),
+                        "tenant_id": tenant_id,
+                        "url": url[:1024],
+                        "url_hash": url_hash,
+                        "source_id": visit.get("source_id"),
+                        "visited_at": visited_at,
+                        "is_policy": visit.get("is_policy", False),
+                        "collected": visit.get("collected", False),
+                        "failed": visit.get("failed", False),
+                        "title": visit.get("title", "")[:512] if visit.get("title") else None,
+                        "page_hash": visit.get("page_hash"),
+                    }
+                )
+
+        # 批量插入
+        if records_to_insert:
+            # Peewee不直接支持batch_size，这里分批插入
+            batch_size = 100
+            for i in range(0, len(records_to_insert), batch_size):
+                batch = records_to_insert[i : i + batch_size]
+                cls.model.insert_many(batch).execute()
+
+    @classmethod
+    @DB.connection_context()
+    def get_visited_count(cls, tenant_id: str, source_id: str = None) -> dict:
+        """获取访问统计
+
+        返回: {
+            "total": int,
+            "policy": int,
+            "collected": int,
+            "failed": int
+        }
+        """
+        query = cls.model.select().where(cls.model.tenant_id == tenant_id)
+        if source_id:
+            query = query.where(cls.model.source_id == source_id)
+
+        total = query.count()
+        policy = query.where(cls.model.is_policy).count()
+        collected = query.where(cls.model.collected).count()
+        failed = query.where(cls.model.failed).count()
+
+        return {"total": total, "policy": policy, "collected": collected, "failed": failed}
+
+    @classmethod
+    @DB.connection_context()
+    def clear_by_source(cls, tenant_id: str, source_id: str) -> int:
+        """清除指定源的访问记录"""
+        query = cls.model.delete().where((cls.model.tenant_id == tenant_id) & (cls.model.source_id == source_id))
+        return query.execute()
+
+    @classmethod
+    @DB.connection_context()
+    def clear_all(cls, tenant_id: str) -> int:
+        """清除租户的所有访问记录"""
+        query = cls.model.delete().where(cls.model.tenant_id == tenant_id)
+        return query.execute()
+
+
 # =============================================================
 # 爬虫目标管理服务
 # =============================================================
@@ -853,4 +1037,3 @@ class CrawlTaskLogService(CommonService):
         if error_message:
             updates["error_message"] = error_message
         cls.model.update(**updates).where(cls.model.id == log_id).execute()
-

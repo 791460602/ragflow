@@ -53,6 +53,9 @@ from crawl4ai.deep_crawling import BestFirstCrawlingStrategy
 from crawl4ai.deep_crawling.scorers import KeywordRelevanceScorer
 from crawl4ai.deep_crawling.filters import FilterChain, ContentTypeFilter
 
+# 【URL Seeding】导入 URL 发现和配置
+from crawl4ai import AsyncUrlSeeder, SeedingConfig
+
 
 # =================================================================================
 # LibraryCrawler 类 - 基础爬虫（精确模式/自动模式）
@@ -573,7 +576,7 @@ class AttachmentDownloader:
 
             # 下载文件
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=60)) as response:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=25)) as response:  # 25秒超时（大规模爬取优化）
                     if response.status == 200:
                         content = await response.read()
 
@@ -616,9 +619,27 @@ class TopicCrawler:
         self.attachment_downloader = AttachmentDownloader()
 
     async def search_by_topic_from_sources(
-        self, sources: list, keywords: list, max_depth: int = 2, max_pages_per_source: int = 30, max_crawl_pages_per_source: int = 100, score_threshold: float = 0.3, persistent_hashes: set = None
+        self,
+        sources: list,
+        keywords: list,
+        tenant_id: str,  # 【新增】租户ID，用于URL去重
+        max_depth: int = 2,
+        max_pages_per_source: int = 30,
+        max_crawl_pages_per_source: int = 100,
+        score_threshold: float = 0.3,
+        persistent_hashes: set = None,
     ):
-        """从多个新闻源根据主题关键词进行智能搜索爬取"""
+        """从多个新闻源根据主题关键词进行智能搜索爬取
+
+        改进点（v4.1）：
+        1. 集成URL访问记录，避免重复爬取
+        2. 详细的计数统计（区分爬取、处理、收集等）
+        3. 保存详细的爬取日志
+        """
+        import time
+
+        start_time = time.time()
+
         if persistent_hashes is None:
             persistent_hashes = set()
 
@@ -626,14 +647,13 @@ class TopicCrawler:
         self.content_scorer = ChineseContentScorer(keywords=keywords)
 
         all_crawled_data = []
+        all_source_stats = []  # 【新增】每个源的统计信息
 
         print("\n[TopicCrawler] 开始多源主题搜索爬取（内容评分模式）")
         print(f"[TopicCrawler] 新闻源数量: {len(sources)}")
         print(f"[TopicCrawler] 关键词: {keywords}")
         print(f"[TopicCrawler] 每源最大收集: {max_pages_per_source}, 每源最大爬取: {max_crawl_pages_per_source}")
         print(f"[TopicCrawler] 内容评分阈值: {score_threshold}")
-
-        # 【修复】不再在这里创建共享的 browser_config
 
         for i, source in enumerate(sources):
             source_id = source.get("id")
@@ -645,6 +665,8 @@ class TopicCrawler:
 
             print(f"\n[TopicCrawler] === 处理源 {i + 1}/{len(sources)}: {source_name} ===")
 
+            source_start_time = time.time()
+
             try:
                 # 【关键修复】每个源创建独立的浏览器配置实例
                 browser_config = BrowserConfig(
@@ -655,14 +677,16 @@ class TopicCrawler:
                         "--disable-dev-shm-usage",
                         "--no-sandbox",
                         "--disable-extensions",
-                        "--disable-images",  # 【新增】禁用图片加载，加快速度
-                        "--blink-settings=imagesEnabled=false",  # 【新增】彻底禁用图片
+                        "--disable-images",
+                        "--blink-settings=imagesEnabled=false",
                     ],
                 )
 
-                source_articles = await self._crawl_single_source(
+                source_articles, source_stats = await self._crawl_single_source(
                     start_url=start_url,
                     source_id=source_id,
+                    source_name=source_name,
+                    tenant_id=tenant_id,  # 【新增】传递 tenant_id
                     keywords=keywords,
                     max_depth=max_depth,
                     max_pages=max_pages_per_source,
@@ -671,49 +695,97 @@ class TopicCrawler:
                     persistent_hashes=persistent_hashes,
                     browser_config=browser_config,
                 )
+
+                source_duration = time.time() - source_start_time
+                source_stats["duration_seconds"] = round(source_duration, 2)
+                all_source_stats.append(source_stats)
+
                 all_crawled_data.extend(source_articles)
-                print(f"[TopicCrawler] 源 '{source_name}' 发现 {len(source_articles)} 篇相关内容")
+                print(f"[TopicCrawler] 源 '{source_name}' 完成: 收集 {len(source_articles)} 篇，耗时 {source_duration:.1f}秒")
 
             except Exception as e:
                 print(f"[TopicCrawler] 处理源 '{source_name}' 时发生错误: {e}")
                 traceback.print_exc()
+
+                # 记录失败的源
+                all_source_stats.append({"source_id": source_id, "source_name": source_name, "error": str(e), "duration_seconds": round(time.time() - source_start_time, 2)})
 
             # 【关键修复】源之间添加延迟，确保浏览器资源完全释放
             if i < len(sources) - 1:
                 print("[TopicCrawler] 等待资源释放...")
                 await asyncio.sleep(2)
 
-        print(f"\n[TopicCrawler] 完成，共发现 {len(all_crawled_data)} 篇相关内容")
+        total_duration = time.time() - start_time
+
+        # 【新增】保存详细日志
+        self._save_crawl_log(keywords=keywords, total_collected=len(all_crawled_data), total_duration=total_duration, source_stats=all_source_stats)
+
+        print("\n[TopicCrawler] ========== 爬取任务完成 ==========")
+        print(f"[TopicCrawler] 总耗时: {total_duration:.1f}秒")
+        print(f"[TopicCrawler] 共收集: {len(all_crawled_data)} 篇政策内容")
+        print("[TopicCrawler] 日志已保存至: crawl4ai_data/logs/")
+
         return all_crawled_data
 
     async def _crawl_single_source(
-        self, start_url: str, source_id: str, keywords: list, max_depth: int, max_pages: int, max_crawl_pages: int, score_threshold: float, persistent_hashes: set, browser_config: BrowserConfig
+        self,
+        start_url: str,
+        source_id: str,
+        source_name: str,  # 【新增】源名称
+        tenant_id: str,  # 【新增】租户ID
+        keywords: list,
+        max_depth: int,
+        max_pages: int,
+        max_crawl_pages: int,
+        score_threshold: float,
+        persistent_hashes: set,
+        browser_config: BrowserConfig,
     ):
-        """爬取单个新闻源 - 专注政策文档（简化版）
+        """爬取单个新闻源 - 专注政策文档（v4.1 - URL去重版）
 
         参数说明：
         - max_pages: 最终收集的政策文档数量（目标）
         - max_crawl_pages: 最多爬取多少个页面（总页面数限制）
 
-        简化后的工作流程：
-        1. 爬取最多 max_crawl_pages 个页面
-        2. 对每个页面检测是否为政策，筛选出政策页面
-        3. 政策页面中符合分数要求的才收集
-        4. 停止条件：收集到 max_pages 篇 或 爬取了 max_crawl_pages 个页面
+        返回：
+        - (newly_crawled_data, source_stats) 元组
+
+        改进点：
+        1. 集成URL访问记录，跳过已访问URL
+        2. 详细的计数统计
+        3. 批量记录URL访问
         """
+        from api.db.services.news_service import NewsVisitedUrlService
+
+        # 统计数据
+        stats = {
+            "source_id": source_id,
+            "source_name": source_name,
+            "crawl4ai_returned": 0,  # crawl4ai返回的页面数
+            "skipped_visited": 0,  # 跳过的已访问页面数
+            "skipped_failed": 0,  # 跳过的失败页面数
+            "processed": 0,  # 实际处理的页面数
+            "policy_found": 0,  # 发现的政策页面数
+            "policy_low_score": 0,  # 政策但分数低的页面数
+            "policy_duplicate": 0,  # 重复的政策页面数
+            "collected": 0,  # 最终收集的政策数
+        }
+
         newly_crawled_data = []
-        visited_urls = set()
-        pages_processed = 0  # 总页面计数（包括政策和非政策）
-        policy_pages_found = 0  # 政策页面计数（仅用于日志）
-        link_scores_sum = 0.0  # 用于计算平均链接分
-        link_scores_count = 0  # 参与计算的链接数
-        enable_link_score_filter = True  # 是否启用链接分过滤
-        failed_pages = 0  # 【新增】失败页面计数（超时、网络错误等）
+        urls_to_record = []  # 【新增】需要记录到数据库的URL列表
 
         print(f"[TopicCrawler] 目标: 收集 {max_pages} 篇政策内容")
         print(f"[TopicCrawler] 限制: 最多爬取 {max_crawl_pages} 个页面")
         print("[TopicCrawler] 策略: 智能BestFirst（优先爬取政策相关链接）")
         print("[TopicCrawler] 超时设置: 8秒/页")
+
+        # ===== 【关键】加载已访问URL =====
+        print("[TopicCrawler] 正在加载已访问URL记录...")
+        try:
+            visited_stats = NewsVisitedUrlService.get_visited_count(tenant_id, source_id)
+            print(f"[TopicCrawler] 已访问记录: 总计{visited_stats['total']}个URL (政策{visited_stats['policy']}, 已收集{visited_stats['collected']}, 失败{visited_stats['failed']})")
+        except Exception as e:
+            print(f"[TopicCrawler] 警告: 无法加载访问记录: {e}")
 
         # ===== 【智能爬取】使用 BestFirst 策略 + 关键词评分 =====
 
@@ -750,7 +822,7 @@ class TopicCrawler:
                 "储能",
                 "配电",
                 "输电",
-                # 英文关键词（政府网站URL可能包含）
+                # 英文关键词
                 "policy",
                 "notice",
                 "document",
@@ -768,21 +840,21 @@ class TopicCrawler:
                 "gg",
                 "fgw",
                 "nyj",
-                "drc",  # 拼音缩写
+                "drc",
                 "news",
                 "xw",
                 "dt",
-                "zwgk",  # 新闻、动态、政务公开
-                # 【新增】地方政府网站常见URL模式
+                "zwgk",
+                # 地方政府网站常见URL模式
                 "gzdt",
                 "fzggdt",
                 "zcjd",
                 "zcwj",
-                "gfxwj",  # 工作动态、政策解读、政策文件
+                "gfxwj",
                 "zfxxgk",
                 "yjzj",
                 "ztzl",
-                "bmxx",  # 政府信息公开、预警专栏、专题专栏
+                "bmxx",
                 # 组合关键词
                 "电力市场",
                 "能源政策",
@@ -790,57 +862,30 @@ class TopicCrawler:
                 "市场交易",
             ]
             + keywords,  # 加上用户提供的搜索关键词
-            weight=0.3,  # 关键词权重（0.0-1.0），越高越重要
+            weight=0.3,  # 关键词权重（0.0-1.0）
         )
 
-        # 2. 内容相关性过滤器：过滤无关链接
-        # relevance_filter = ContentRelevanceFilter(
-        #     query=" ".join(keywords) + " 电力能源政策文件通知",  # 查询文本
-        #     threshold=0.5,  # 相关度阈值（0.0-1.0），低于此值的链接会被过滤
-        # )
-
-        # 3. URL模式过滤器：使用通配符匹配政策相关URL
-        # url_filter = URLPatternFilter(
-        #     patterns=[
-        #         "*policy*",
-        #         "*zc*",
-        #         "*wj*",
-        #         "*tz*",
-        #         "*gg*",  # 政策、文件、通知、公告拼音
-        #         "*fgw*",
-        #         "*nyj*",
-        #         "*drc*",  # 发改委、能源局、发改委拼音
-        #         "*news*",
-        #         "*xw*",
-        #         "*dt*",  # 新闻、动态
-        #         "*/20[2-9][0-9]/*",  # 日期路径（2020-2099）
-        #         "*/c_[0-9]*",  # 常见政府网站文章格式
-        #     ]
-        # )
-
-        # 4. 组合过滤器
+        # 2. 组合过滤器
         filter_chain = FilterChain(
             [
-                ContentTypeFilter(allowed_types=["text/html"]),  # 只爬HTML页面
-                # relevance_filter,  # 暂时注释，避免过度过滤
-                # url_filter,        # 暂时注释，观察效果
+                ContentTypeFilter(allowed_types=["text/html"]),
             ]
         )
 
-        # 5. 配置 BestFirst 策略
+        # 3. 配置 BestFirst 策略
         config = CrawlerRunConfig(
             deep_crawl_strategy=BestFirstCrawlingStrategy(
                 max_depth=max_depth,
-                include_external=False,  # 只爬取同域名链接
-                max_pages=max_crawl_pages,  # 限制总页面数
-                url_scorer=keyword_scorer,  # 使用关键词评分器
-                filter_chain=filter_chain,  # 应用过滤链
+                include_external=False,
+                max_pages=max_crawl_pages,
+                url_scorer=keyword_scorer,
+                filter_chain=filter_chain,
             ),
             scraping_strategy=LXMLWebScrapingStrategy(),
-            stream=False,  # 改回批量模式，stream 模式太不稳定
+            stream=False,
             verbose=True,
-            page_timeout=8000,  # 页面超时8秒（适合大规模爬取）
-            wait_until="commit",  # 【新增】改为更宽松的等待策略（commit比domcontentloaded更快）
+            page_timeout=8000,
+            wait_until="commit",
         )
 
         crawler = None
@@ -858,199 +903,179 @@ class TopicCrawler:
                 results_list = []
                 if isinstance(crawl_result, list):
                     results_list = crawl_result
-                    print(f"[TopicCrawler] 爬取完成，获得 {len(results_list)} 个页面（已按链接评分排序）")
                 elif hasattr(crawl_result, "results") and crawl_result.results:
                     results_list = crawl_result.results
-                    print(f"[TopicCrawler] 爬取完成，获得 {len(results_list)} 个页面")
                 else:
-                    print("[TopicCrawler] 警告：未获取到结果")
                     results_list = []
+
+                stats["crawl4ai_returned"] = len(results_list)
+                print(f"[TopicCrawler] crawl4ai返回: {len(results_list)} 个页面")
+
+                # 【关键】批量检查URL是否已访问
+                all_urls = [r.url for r in results_list if hasattr(r, "url")]
+                visited_url_map = {}
+                if all_urls:
+                    try:
+                        visited_url_map = NewsVisitedUrlService.batch_check_visited(tenant_id, all_urls)
+                    except Exception as e:
+                        print(f"[TopicCrawler] 警告: 批量检查URL失败: {e}")
 
                 # 遍历所有结果（已按BestFirst评分排序）
                 for result in results_list:
                     # 停止条件1：已收集到足够的政策内容
-                    if len(newly_crawled_data) >= max_pages:
-                        print(f"[TopicCrawler] ✓ 已收集到 {max_pages} 篇政策内容，停止爬取")
+                    if stats["collected"] >= max_pages:
+                        print(f"[TopicCrawler] ✓ 已收集到 {max_pages} 篇政策内容，停止处理")
                         break
 
-                    # 停止条件2：已爬取足够多的页面
-                    if pages_processed >= max_crawl_pages:
-                        print(f"[TopicCrawler] ✓ 已处理 {max_crawl_pages} 个页面（政策: {policy_pages_found}, 收集: {len(newly_crawled_data)}），停止爬取")
+                    # 停止条件2：已处理足够多的页面
+                    if stats["processed"] >= max_crawl_pages:
+                        print(f"[TopicCrawler] ✓ 已处理 {max_crawl_pages} 个页面，停止处理")
                         break
 
-                    pages_processed += 1
+                    url = result.url if hasattr(result, "url") else None
+                    if not url:
+                        continue
 
+                    # 【关键】检查是否已访问
+                    if visited_url_map.get(url, False):
+                        stats["skipped_visited"] += 1
+                        if stats["skipped_visited"] % 20 == 1:  # 每20个输出一次
+                            print(f"[TopicCrawler] 跳过已访问URL (已跳过{stats['skipped_visited']}个)")
+                        continue
+
+                    # 检查是否成功
                     if not result.success:
-                        failed_pages += 1
-                        # 【新增】记录失败原因（仅前10个失败页面输出详细信息）
-                        if failed_pages <= 10:
-                            error_msg = getattr(result, "error_message", "Unknown error")
-                            print(f"[TopicCrawler] ✗ 页面失败 #{failed_pages}: {result.url[:80]}...")
-                            if "Timeout" in str(error_msg) or "timeout" in str(error_msg):
-                                print("[TopicCrawler]    原因: 页面加载超时（已忽略）")
-                            elif error_msg:
-                                print(f"[TopicCrawler]    原因: {str(error_msg)[:100]}")
-                        elif failed_pages % 10 == 0:
-                            print(f"[TopicCrawler] 已跳过 {failed_pages} 个失败页面")
+                        stats["skipped_failed"] += 1
+                        urls_to_record.append(
+                            {
+                                "url": url,
+                                "source_id": source_id,
+                                "failed": True,
+                                "is_policy": False,
+                                "collected": False,
+                            }
+                        )
                         continue
 
-                    url = result.url
-                    if url in visited_urls:
-                        continue
-                    visited_urls.add(url)
+                    stats["processed"] += 1
 
-                    # 获取链接评分（BestFirst策略会给每个结果打分）
-                    link_score = result.metadata.get("score", 0.0) if result.metadata else 0.0
-
-                    # 统计链接分用于诊断
-                    link_scores_sum += link_score
-                    link_scores_count += 1
-
-                    # 【提前提取title和content】供后续debug和过滤使用
+                    # 提取内容
                     content_text = self._extract_content(result)
-                    title = getattr(result, "title", "") or ""
-                    if not str(title).strip():
-                        try:
-                            if result.metadata and isinstance(result.metadata, dict):
-                                title = result.metadata.get("title") or title
-                        except Exception:
-                            pass
-                    if not str(title).strip():
-                        try:
-                            html = getattr(result, "html", None)
-                            if html:
-                                soup = BeautifulSoup(html, "html.parser")
-                                title = soup.title.string if soup.title and soup.title.string else title
-                        except Exception:
-                            pass
-                    title = (title or "").strip()
-
-                    # 【调试】查看实际的链接和评分信息（仅前5个页面）
-                    if pages_processed <= 5:
-                        print(f"[DEBUG] 页面 {pages_processed}:")
-                        print(f"  URL: {url}")
-                        print(f"  Title: {title[:50] if title else 'None'}")
-                        print(f"  链接分: {link_score:.3f}")
-                        # 查看是否有其他评分相关信息
-                        if result.metadata:
-                            print(f"  Depth: {result.metadata.get('depth', '?')}")
-                            print(f"  Parent URL: {result.metadata.get('parent_url', 'None')}")
-                            # 【新增】查看anchor_text和其他可能影响评分的信息
-                            anchor_text = result.metadata.get("anchor_text", "")
-                            print(f"  Anchor Text: {anchor_text[:50] if anchor_text else 'None'}")
-                            # 显示所有metadata keys以便诊断
-                            print(f"  Metadata Keys: {list(result.metadata.keys())}")
-
-                    # 【诊断】检查KeywordRelevanceScorer是否工作
-                    if pages_processed == 20:
-                        avg_link_score = link_scores_sum / link_scores_count if link_scores_count > 0 else 0.0
-                        print("\n[TopicCrawler] ⚠️  链接评分诊断（前20页）：")
-                        print(f"  平均链接分: {avg_link_score:.4f}")
-                        if avg_link_score < 0.01:
-                            print("  警告：链接分过低！KeywordRelevanceScorer可能未生效")
-                            print("  可能原因：")
-                            print("    1. 政府网站URL为编码ID，不包含关键词")
-                            print("    2. Anchor text为通用文本（'更多'、'详情'等）")
-                            print("    3. 中文关键词支持问题")
-                            print("  当前策略：禁用链接分过滤，完全依赖PolicyFeatureDetector\n")
-                            enable_link_score_filter = False  # 禁用链接分过滤
-
-                    # 【关键过滤】链接分过低的页面直接跳过（节省资源）
-                    # 注意：如果诊断发现链接分无效，此过滤器会被禁用
-                    if enable_link_score_filter:
-                        MIN_LINK_SCORE = 0.05  # 降低阈值，避免过滤所有内容
-                        if link_score > 0 and link_score < MIN_LINK_SCORE and pages_processed > 1:  # 首页除外
-                            if pages_processed % 10 == 0:
-                                print(f"[TopicCrawler] 跳过低分链接 (链接分{link_score:.2f}) | 已处理 {pages_processed} 页")
-                            continue
-
                     if not content_text or len(content_text.strip()) < 100:
+                        urls_to_record.append(
+                            {
+                                "url": url,
+                                "source_id": source_id,
+                                "failed": False,
+                                "is_policy": False,
+                                "collected": False,
+                            }
+                        )
                         continue
 
-                    # ===== 【关键1】先检测是否为政策文档 =====
+                    # 提取标题
+                    title = self._extract_title(result)
+
+                    # ===== 【关键1】检测是否为政策文档 =====
                     html = getattr(result, "html", None) or ""
                     policy_info = self.policy_detector.detect(html, title, content_text, url)
 
-                    # 如果不是政策文档，直接跳过
+                    # 如果不是政策文档，记录并跳过
                     if not policy_info["is_policy"]:
-                        if pages_processed % 10 == 0:  # 每10个页面输出一次，避免日志过多
-                            print(f"[TopicCrawler] 已处理 {pages_processed} 页 | 发现 {policy_pages_found} 个政策页面 | 收集 {len(newly_crawled_data)} 篇")
+                        urls_to_record.append(
+                            {
+                                "url": url,
+                                "source_id": source_id,
+                                "failed": False,
+                                "is_policy": False,
+                                "collected": False,
+                                "title": title,
+                            }
+                        )
+                        if stats["processed"] % 10 == 0:
+                            print(f"[TopicCrawler] 已处理 {stats['processed']} 页 | 发现 {stats['policy_found']} 个政策 | 收集 {stats['collected']} 篇")
                         continue
 
-                    # ===== 【关键2】这是政策页面，计数+1 =====
-                    policy_pages_found += 1
+                    # ===== 【关键2】这是政策页面 =====
+                    stats["policy_found"] += 1
                     depth = result.metadata.get("depth", 0) if result.metadata else 0
 
-                    # 计算内容相关性和综合分数
+                    # 计算评分
                     content_score = self.content_scorer.score(content_text, title)
                     matched_keywords = self.content_scorer.get_matched_keywords(content_text + " " + title)
                     policy_score = policy_info["score"]
                     final_score = content_score * 0.5 + policy_score * 0.5
 
-                    # 显示详细评分（包括BestFirst的链接评分）
+                    # 显示详细评分
+                    link_score = result.metadata.get("score", 0.0) if result.metadata else 0.0
                     print(
-                        f"[TopicCrawler] 🏛️ 政策#{policy_pages_found} | 深度{depth} | 链接分{link_score:.2f} | 综合分{final_score:.2f} (内容{content_score:.2f}/政策{policy_score:.2f}) | {title[:30]}..."
+                        f"[TopicCrawler] 🏛️ 政策#{stats['policy_found']} | 深度{depth} | "
+                        f"链接分{link_score:.2f} | 综合分{final_score:.2f} "
+                        f"(内容{content_score:.2f}/政策{policy_score:.2f}) | {title[:30]}..."
                     )
 
                     # 检查分数是否达标
                     if final_score < score_threshold:
+                        stats["policy_low_score"] += 1
                         print("[TopicCrawler]    ⊗ 分数过低，跳过")
+                        urls_to_record.append(
+                            {
+                                "url": url,
+                                "source_id": source_id,
+                                "failed": False,
+                                "is_policy": True,
+                                "collected": False,
+                                "title": title,
+                            }
+                        )
                         continue
 
-                    # ===== 【关键3】去重检查（内容哈希 + 数据库URL）=====
-                    # 3.1 内存去重：基于内容哈希
+                    # ===== 【关键3】去重检查 =====
                     content_hash = hashlib.sha256(content_text.encode("utf-8")).hexdigest()
+
+                    # 3.1 内存去重
                     if content_hash in persistent_hashes:
+                        stats["policy_duplicate"] += 1
                         print("[TopicCrawler]    ⊗ 重复内容（哈希），跳过")
+                        urls_to_record.append(
+                            {
+                                "url": url,
+                                "source_id": source_id,
+                                "failed": False,
+                                "is_policy": True,
+                                "collected": False,
+                                "title": title,
+                                "page_hash": content_hash,
+                            }
+                        )
                         continue
 
-                    # 3.2 数据库去重：基于URL（避免重复收集已入库的内容）
+                    # 3.2 数据库去重
                     try:
                         from api.db.services.news_service import NewsContentService
 
                         if NewsContentService.model.select().where(NewsContentService.model.original_url == url).exists():
+                            stats["policy_duplicate"] += 1
                             print("[TopicCrawler]    ⊗ URL已存在数据库，跳过")
+                            urls_to_record.append(
+                                {
+                                    "url": url,
+                                    "source_id": source_id,
+                                    "failed": False,
+                                    "is_policy": True,
+                                    "collected": False,
+                                    "title": title,
+                                    "page_hash": content_hash,
+                                }
+                            )
                             continue
-                    except Exception as db_check_error:
-                        # 数据库检查失败不影响爬取，继续处理
-                        print(f"[TopicCrawler]    ⚠ 数据库去重检查失败: {db_check_error}")
+                    except Exception as db_error:
+                        print(f"[TopicCrawler]    ⚠ 数据库去重检查失败: {db_error}")
 
                     persistent_hashes.add(content_hash)
 
                     # 查找并下载附件
-                    attachments = []
-                    if html:
-                        try:
-                            found_attachments = await self.attachment_downloader.find_attachments(html, url)
-
-                            if found_attachments:
-                                print(f"[TopicCrawler]    📎 发现 {len(found_attachments)} 个附件")
-
-                                base_dir = "crawl4ai_data"
-                                safe_title = _sanitize_filename(title[:30] or "untitled")
-                                attachment_dir = os.path.join(base_dir, "attachments", safe_title)
-
-                                for att in found_attachments[:5]:
-                                    download_result = await self.attachment_downloader.download_attachment(url=att["url"], save_dir=attachment_dir, filename=att["filename"])
-
-                                    if download_result["success"]:
-                                        attachments.append(
-                                            {
-                                                "filename": download_result["filename"],
-                                                "filepath": download_result["filepath"],
-                                                "size": download_result["size"],
-                                                "url": download_result["url"],
-                                                "extension": att["extension"],
-                                                "link_text": att["link_text"],
-                                            }
-                                        )
-                                        print(f"[TopicCrawler]       ✓ {download_result['filename']}")
-                                    else:
-                                        print(f"[TopicCrawler]       ✗ {att['filename']}")
-
-                                print(f"[TopicCrawler]    ✓ 下载 {len(attachments)}/{len(found_attachments)} 个附件")
-                        except Exception as e:
-                            print(f"[TopicCrawler]    ✗ 附件处理出错: {e}")
+                    attachments = await self._download_attachments(html, url, title)
 
                     # 收集内容
                     article_data = {
@@ -1064,25 +1089,32 @@ class TopicCrawler:
                         "title": title,
                         "matched_keywords": matched_keywords,
                         "crawl_timestamp": datetime.now().isoformat(),
-                        "is_policy": True,  # 这里一定是政策
+                        "is_policy": True,
                         "policy_score": policy_score,
                         "policy_features": policy_info["features"],
                         "attachments": attachments,
                         "attachment_count": len(attachments),
                     }
                     newly_crawled_data.append(article_data)
+                    stats["collected"] += 1
+
+                    # 记录成功收集的URL
+                    urls_to_record.append(
+                        {
+                            "url": url,
+                            "source_id": source_id,
+                            "failed": False,
+                            "is_policy": True,
+                            "collected": True,
+                            "title": title,
+                            "page_hash": content_hash,
+                        }
+                    )
 
                     attachment_tag = f"📎{len(attachments)}" if attachments else ""
-                    print(f"[TopicCrawler]    ✓ 收集成功 {attachment_tag} [已收集 {len(newly_crawled_data)}/{max_pages}]")
+                    print(f"[TopicCrawler]    ✓ 收集成功 {attachment_tag} [已收集 {stats['collected']}/{max_pages}]")
 
-            except GeneratorExit:
-                # 【修复】正常处理生成器退出
-                print("[TopicCrawler] 爬取迭代器已关闭")
-            except StopAsyncIteration:
-                # 正常结束
-                pass
             except Exception as iter_error:
-                # 【修复】忽略已知的crawl4ai库错误
                 error_str = str(iter_error)
                 if "was created in a different Context" in error_str:
                     print("[TopicCrawler] 忽略ContextVar错误（crawl4ai已知问题）")
@@ -1103,14 +1135,121 @@ class TopicCrawler:
                 try:
                     await crawler.__aexit__(None, None, None)
                 except Exception:
-                    # 忽略关闭时的错误（这些通常是无害的）
                     pass
 
-            # 额外等待，确保浏览器进程完全退出
             await asyncio.sleep(0.5)
 
-        print(f"[TopicCrawler] 单源完成: 处理 {pages_processed} 页, 发现 {policy_pages_found} 个政策页面, 收集 {len(newly_crawled_data)} 篇")
-        return newly_crawled_data
+        # 【新增】批量记录URL访问到数据库
+        if urls_to_record:
+            print(f"[TopicCrawler] 正在记录 {len(urls_to_record)} 个URL访问记录...")
+            try:
+                NewsVisitedUrlService.batch_record_visits(tenant_id, urls_to_record)
+                print("[TopicCrawler] URL访问记录已保存")
+            except Exception as record_error:
+                print(f"[TopicCrawler] 警告: URL访问记录保存失败: {record_error}")
+
+        # 打印统计摘要
+        print("\n[TopicCrawler] ===== 单源统计摘要 =====")
+        print(f"[TopicCrawler] crawl4ai返回: {stats['crawl4ai_returned']} 个页面")
+        print(f"[TopicCrawler] 跳过已访问: {stats['skipped_visited']} 个")
+        print(f"[TopicCrawler] 跳过失败: {stats['skipped_failed']} 个")
+        print(f"[TopicCrawler] 实际处理: {stats['processed']} 个")
+        print(f"[TopicCrawler] 发现政策: {stats['policy_found']} 个")
+        print(f"[TopicCrawler]   - 分数过低: {stats['policy_low_score']} 个")
+        print(f"[TopicCrawler]   - 重复内容: {stats['policy_duplicate']} 个")
+        print(f"[TopicCrawler] 最终收集: {stats['collected']} 篇")
+
+        return newly_crawled_data, stats
+
+    def _extract_title(self, result) -> str:
+        """从爬取结果中提取标题"""
+        title = getattr(result, "title", "") or ""
+        if not str(title).strip():
+            try:
+                if result.metadata and isinstance(result.metadata, dict):
+                    title = result.metadata.get("title") or title
+            except Exception:
+                pass
+        if not str(title).strip():
+            try:
+                html = getattr(result, "html", None)
+                if html:
+                    from bs4 import BeautifulSoup
+
+                    soup = BeautifulSoup(html, "html.parser")
+                    title = soup.title.string if soup.title and soup.title.string else title
+            except Exception:
+                pass
+        return (title or "").strip()
+
+    async def _download_attachments(self, html: str, url: str, title: str) -> list:
+        """下载页面的附件文件"""
+        attachments = []
+        if not html:
+            return attachments
+
+        try:
+            found_attachments = await self.attachment_downloader.find_attachments(html, url)
+
+            if found_attachments:
+                print(f"[TopicCrawler]    📎 发现 {len(found_attachments)} 个附件")
+
+                base_dir = "crawl4ai_data"
+                safe_title = _sanitize_filename(title[:30] or "untitled")
+                attachment_dir = os.path.join(base_dir, "attachments", safe_title)
+
+                for att in found_attachments[:5]:  # 最多下载5个附件
+                    download_result = await self.attachment_downloader.download_attachment(url=att["url"], save_dir=attachment_dir, filename=att["filename"])
+
+                    if download_result["success"]:
+                        attachments.append(
+                            {
+                                "filename": download_result["filename"],
+                                "filepath": download_result["filepath"],
+                                "size": download_result["size"],
+                                "url": download_result["url"],
+                                "extension": att["extension"],
+                                "link_text": att["link_text"],
+                            }
+                        )
+                        print(f"[TopicCrawler]       ✓ {download_result['filename']}")
+                    else:
+                        print(f"[TopicCrawler]       ✗ {att['filename']}")
+
+                print(f"[TopicCrawler]    ✓ 下载 {len(attachments)}/{len(found_attachments)} 个附件")
+        except Exception as e:
+            print(f"[TopicCrawler]    ✗ 附件处理出错: {e}")
+
+        return attachments
+
+    def _save_crawl_log(self, keywords: list, total_collected: int, total_duration: float, source_stats: list):
+        """保存详细的爬取日志到文件"""
+        import json
+        import time
+
+        log_dir = "crawl4ai_data/logs"
+        os.makedirs(log_dir, exist_ok=True)
+
+        timestamp = int(time.time() * 1000)
+        log_filename = f"crawl_log_{timestamp}.json"
+        log_path = os.path.join(log_dir, log_filename)
+
+        log_data = {
+            "timestamp": timestamp,
+            "datetime": datetime.now().isoformat(),
+            "keywords": keywords,
+            "total_duration_seconds": round(total_duration, 2),
+            "total_collected": total_collected,
+            "source_count": len(source_stats),
+            "sources": source_stats,
+        }
+
+        try:
+            with open(log_path, "w", encoding="utf-8") as f:
+                json.dump(log_data, f, ensure_ascii=False, indent=2)
+            print(f"[TopicCrawler] 日志已保存: {log_path}")
+        except Exception as e:
+            print(f"[TopicCrawler] 警告: 日志保存失败: {e}")
 
     def _extract_content(self, result) -> str:
         """从爬取结果中提取文本内容"""
@@ -1122,6 +1261,709 @@ class TopicCrawler:
         elif isinstance(md_raw, dict):
             return md_raw.get("str") or md_raw.get("raw_markdown") or md_raw.get("markdown_with_citations") or md_raw.get("markdown") or ""
         return str(md_raw)
+
+
+# =================================================================================
+# UrlSeedingCrawler 类 - URL Seeding智能爬取（方案A）
+# =================================================================================
+class UrlSeedingCrawler:
+    """基于URL Seeding的智能爬虫 - 先发现，再过滤，后爬取
+
+    改进点（相比TopicCrawler）：
+    1. 先发现全部URL（sitemap + Common Crawl），几秒完成
+    2. 使用BM25对元数据（title, description）进行评分过滤，无需爬取
+    3. 只爬取高分URL，避免浪费资源
+    4. 简化版：移除PolicyFeatureDetector，只用BM25
+
+    预期性能：
+    - URL发现：10源 × 1000 URL = 10,000 URL in 2分钟
+    - BM25过滤：即时完成
+    - 精准爬取：200个高分URL in 20分钟
+    - 总计：22分钟 vs 旧方法100分钟（78%提升）
+    """
+
+    def __init__(self):
+        self.attachment_downloader = AttachmentDownloader()
+
+    async def search_by_url_seeding(
+        self,
+        sources: list,
+        keywords: list,
+        tenant_id: str,
+        max_pages_per_source: int = 30,
+        max_urls_per_source: int = 1000,  # 新增：每源最大URL发现数量
+        relevance_threshold: float = 0.3,  # 改名：相关性阈值（自定义评分），默认0.3
+        persistent_hashes: set = None,
+    ):
+        """从多个新闻源使用URL Seeding进行智能搜索爬取
+
+        参数:
+            sources: 新闻源列表
+            keywords: 关键词列表
+            tenant_id: 租户ID
+            max_pages_per_source: 每源最大收集篇数（默认30）
+            max_urls_per_source: 每源最大URL发现数量（默认1000）
+                - 从sitemap+CommonCrawl发现的URL总数上限
+                - 推荐值：1000（平衡速度和覆盖度）
+                - 更多：2000-5000（需要更长时间）
+                - 更少：500（更快但可能遗漏）
+            relevance_threshold: 相关性阈值，用于过滤URL（默认0.3）
+                - 评分范围：0-1.0（URL路径0.15 + 预定义关键词0.25 + 用户关键词0.6）
+                - 用户关键词权重最高（0.6），确保用户搜索意图优先
+                - 推荐值：0.3（至少匹配URL或部分关键词）
+                - 更严格：0.5（需要匹配用户关键词）
+                - 更宽松：0.2（匹配部分即可）
+            persistent_hashes: 已存在的内容哈希集合
+
+        返回:
+            收集到的文章数据列表
+        """
+        import time
+
+        start_time = time.time()
+
+        if persistent_hashes is None:
+            persistent_hashes = set()
+
+        all_crawled_data = []
+        all_source_stats = []
+
+        print("\n[UrlSeedingCrawler] 开始URL Seeding智能爬取")
+        print(f"[UrlSeedingCrawler] 新闻源数量: {len(sources)}")
+        print(f"[UrlSeedingCrawler] 关键词: {keywords}")
+        print(f"[UrlSeedingCrawler] 每源最大收集: {max_pages_per_source}")
+        print(f"[UrlSeedingCrawler] 相关性过滤阈值: {relevance_threshold} (自定义评分，范围0-1.0，用户词权重0.6)")
+
+        for i, source in enumerate(sources):
+            source_id = source.get("id")
+            source_name = source.get("name")
+            start_url = source.get("url")
+
+            if not start_url:
+                continue
+
+            print(f"\n[UrlSeedingCrawler] === 处理源 {i + 1}/{len(sources)}: {source_name} ===")
+
+            source_start_time = time.time()
+
+            try:
+                source_articles, source_stats = await self._crawl_single_source_with_seeding(
+                    start_url=start_url,
+                    source_id=source_id,
+                    source_name=source_name,
+                    tenant_id=tenant_id,
+                    keywords=keywords,
+                    max_pages=max_pages_per_source,
+                    max_urls=max_urls_per_source,  # 传递最大URL数量
+                    relevance_threshold=relevance_threshold,  # 使用相关性阈值
+                    persistent_hashes=persistent_hashes,
+                )
+
+                source_duration = time.time() - source_start_time
+                source_stats["duration_seconds"] = round(source_duration, 2)
+                all_source_stats.append(source_stats)
+
+                all_crawled_data.extend(source_articles)
+                print(f"[UrlSeedingCrawler] 源 '{source_name}' 完成: 收集 {len(source_articles)} 篇，耗时 {source_duration:.1f}秒")
+
+            except Exception as e:
+                print(f"[UrlSeedingCrawler] 处理源 '{source_name}' 时发生错误: {e}")
+                traceback.print_exc()
+
+                all_source_stats.append({"source_id": source_id, "source_name": source_name, "error": str(e), "duration_seconds": round(time.time() - source_start_time, 2)})
+
+            # 源之间添加延迟
+            if i < len(sources) - 1:
+                print("[UrlSeedingCrawler] 等待资源释放...")
+                await asyncio.sleep(1)
+
+        total_duration = time.time() - start_time
+
+        # 保存详细日志
+        self._save_crawl_log(keywords=keywords, total_collected=len(all_crawled_data), total_duration=total_duration, source_stats=all_source_stats)
+
+        print("\n[UrlSeedingCrawler] ========== 爬取任务完成 ==========")
+        print(f"[UrlSeedingCrawler] 总耗时: {total_duration:.1f}秒")
+        print(f"[UrlSeedingCrawler] 共收集: {len(all_crawled_data)} 篇内容")
+        print("[UrlSeedingCrawler] 日志已保存至: crawl4ai_data/logs/")
+
+        return all_crawled_data
+
+    async def _crawl_single_source_with_seeding(
+        self,
+        start_url: str,
+        source_id: str,
+        source_name: str,
+        tenant_id: str,
+        keywords: list,
+        max_pages: int,
+        max_urls: int,  # 新增：每源最大URL发现数量
+        relevance_threshold: float,  # 改名：相关性阈值，默认0.3
+        persistent_hashes: set,
+    ):
+        """使用URL Seeding爬取单个新闻源
+
+        流程：
+        1. URL发现：使用AsyncUrlSeeder从sitemap+CommonCrawl发现URL
+        2. BM25过滤：基于head数据（title, description）进行BM25评分
+        3. 选择高分URL：选取评分最高的URL
+        4. 精准爬取：只爬取选中的URL
+        5. 内容去重：使用content_hash去重
+        """
+        from api.db.services.news_service import NewsVisitedUrlService
+
+        stats = {
+            "source_id": source_id,
+            "source_name": source_name,
+            "discovered_urls": 0,
+            "after_bm25_filter": 0,
+            "after_visited_filter": 0,
+            "crawled": 0,
+            "collected": 0,
+            "duplicate": 0,
+        }
+
+        newly_crawled_data = []
+        urls_to_record = []
+
+        print("[UrlSeedingCrawler] ===== 第1步：URL发现 =====")
+
+        # 构建查询字符串
+        query_str = " ".join(keywords + ["政策", "通知", "文件", "办法", "规定", "意见", "公告", "电力", "能源", "电网", "电价", "市场", "交易"])
+
+        try:
+            # 使用AsyncUrlSeeder发现URL
+            async with AsyncUrlSeeder() as seeder:
+                # 策略1：sitemap+cc（推荐，覆盖最全）
+                config = SeedingConfig(
+                    source="sitemap+cc",  # sitemap + Common Crawl
+                    extract_head=True,  # 提取head元数据（title, description）
+                    query=query_str,  # 提供关键词用于URL发现
+                    max_urls=max_urls,  # 每源最多发现的URL数量（用户可配置）
+                    concurrency=10,
+                )
+
+                print(f"[UrlSeedingCrawler] 正在从 {start_url} 发现URL（策略: sitemap+CommonCrawl）...")
+                discovered = await seeder.urls(start_url, config)
+
+                stats["discovered_urls"] = len(discovered)
+                print(f"[UrlSeedingCrawler] ✓ 发现 {len(discovered)} 个URL")
+
+                # 如果发现的URL太少，尝试备用策略
+                if len(discovered) < 50:
+                    print("[UrlSeedingCrawler] ⚠ 发现URL数量较少，尝试备用策略...")
+
+                    # 策略2：只用Common Crawl（适合没有sitemap的网站）
+                    print("[UrlSeedingCrawler] 备用策略1: 只用Common Crawl...")
+                    config_cc = SeedingConfig(
+                        source="cc",  # 只用Common Crawl
+                        extract_head=True,
+                        query=query_str,
+                        max_urls=max_urls,
+                    )
+                    try:
+                        discovered_cc = await seeder.urls(start_url, config_cc)
+                        print(f"[UrlSeedingCrawler] ✓ Common Crawl发现 {len(discovered_cc)} 个URL")
+
+                        if len(discovered_cc) > len(discovered):
+                            print(f"[UrlSeedingCrawler] ✓ 使用Common Crawl结果（{len(discovered_cc)} > {len(discovered)}）")
+                            discovered = discovered_cc
+                            stats["discovered_urls"] = len(discovered)
+                    except Exception as cc_error:
+                        print(f"[UrlSeedingCrawler] ✗ Common Crawl策略失败: {cc_error}")
+
+                    # 如果Common Crawl也失败，尝试只用sitemap
+                    if len(discovered) < 50:
+                        print("[UrlSeedingCrawler] 备用策略2: 只用Sitemap...")
+                        config_sitemap = SeedingConfig(
+                            source="sitemap",  # 只用sitemap
+                            extract_head=True,
+                            query=query_str,
+                            max_urls=max_urls,
+                        )
+                        try:
+                            discovered_sitemap = await seeder.urls(start_url, config_sitemap)
+                            print(f"[UrlSeedingCrawler] ✓ Sitemap发现 {len(discovered_sitemap)} 个URL")
+
+                            if len(discovered_sitemap) > len(discovered):
+                                print(f"[UrlSeedingCrawler] ✓ 使用Sitemap结果（{len(discovered_sitemap)} > {len(discovered)}）")
+                                discovered = discovered_sitemap
+                                stats["discovered_urls"] = len(discovered)
+                        except Exception as sitemap_error:
+                            print(f"[UrlSeedingCrawler] ✗ Sitemap策略失败: {sitemap_error}")
+
+        except Exception as e:
+            print(f"[UrlSeedingCrawler] URL发现失败: {e}")
+            traceback.print_exc()
+            return newly_crawled_data, stats
+
+        if not discovered:
+            print("[UrlSeedingCrawler] 未发现任何URL，跳过此源")
+            return newly_crawled_data, stats
+
+        print("\n[UrlSeedingCrawler] ===== 第2步：智能过滤（自定义评分）=====")
+        print("[UrlSeedingCrawler] 评分方式: URL路径(15%) + 预定义词(25%) + 用户词(60%)")
+
+        # 政策相关的URL路径模式（政府网站常用）
+        POLICY_URL_PATTERNS = [
+            # 中文拼音缩写
+            "zcfg",
+            "zcwj",
+            "zc",
+            "wj",
+            "tz",
+            "gg",
+            "fgw",
+            "nyj",
+            "drc",
+            "gzdt",
+            "fzggdt",
+            "zcjd",
+            "gfxwj",
+            "zfxxgk",
+            "yjzj",
+            "ztzl",
+            # 英文
+            "policy",
+            "notice",
+            "document",
+            "regulation",
+            "announcement",
+            "news",
+            "affair",
+            "govern",
+            # 数字编号（政策文件常有）
+            r"\d{4}",
+            r"[〔\[]\d{4}[〕\]]",
+        ]
+
+        # 政策相关的title关键词
+        POLICY_TITLE_KEYWORDS = [
+            "通知",
+            "文件",
+            "政策",
+            "办法",
+            "规定",
+            "意见",
+            "方案",
+            "规划",
+            "决定",
+            "批复",
+            "公告",
+            "函",
+            "指导",
+            "措施",
+            "制度",
+            "条例",
+            "纲要",
+            "指南",
+            "标准",
+            "细则",
+            "电力",
+            "能源",
+            "电网",
+            "电价",
+            "市场",
+            "交易",
+            "现货",
+            "新能源",
+            "光伏",
+            "风电",
+            "储能",
+            "配电",
+            "输电",
+        ]
+
+        # 合并用户关键词（不要和预定义关键词混在一起）
+        predefined_keywords = set(POLICY_TITLE_KEYWORDS)  # 预定义关键词
+        user_keywords_set = set(keywords)  # 用户关键词（单独处理）
+
+        # 【改进】使用URL路径模式 + title关键词进行过滤
+        # 新权重分配（总分1.0）：
+        # - URL路径匹配：0.15（政策相关路径）
+        # - 预定义关键词：0.25（政策类型词、能源电力词）
+        # - 用户关键词：0.6（最重要！用户搜索意图）
+        high_score_urls = []
+        skipped_count = 0
+
+        for url_data in discovered:
+            url = url_data.get("url", "")
+            head_data = url_data.get("head_data", {})
+            title = head_data.get("title") or "无标题"
+
+            # 计算自定义相关性分数
+            custom_score = 0.0
+            matched_reasons = []
+
+            # 1. URL路径匹配（权重0.15）- 政策相关路径
+            url_lower = url.lower()
+            for pattern in POLICY_URL_PATTERNS:
+                if pattern in url_lower:
+                    custom_score += 0.15
+                    matched_reasons.append(f"URL含'{pattern}'")
+                    break
+
+            # 2. 预定义关键词匹配（权重0.25）- 政策类型词、能源词
+            title_lower = title.lower()
+            predefined_matches = 0
+            for keyword in predefined_keywords:
+                if keyword.lower() in title_lower:
+                    predefined_matches += 1
+
+            if predefined_matches > 0:
+                # 匹配越多，分数越高，最高0.25
+                custom_score += min(0.25, predefined_matches * 0.08)
+                if predefined_matches <= 2:  # 只显示前2个
+                    matched_reasons.append(f"预定义词×{predefined_matches}")
+
+            # 3. 用户关键词匹配（权重0.6）- 最重要！
+            user_keyword_matches = 0
+            matched_user_keywords = []
+            for kw in user_keywords_set:
+                if kw.lower() in title_lower:
+                    user_keyword_matches += 1
+                    if len(matched_user_keywords) < 2:  # 只显示前2个匹配的用户关键词
+                        matched_user_keywords.append(kw)
+
+            if user_keyword_matches > 0:
+                # 匹配越多，分数越高，最高0.6
+                user_score = min(0.6, user_keyword_matches * 0.3)
+                custom_score += user_score
+                matched_reasons.insert(0, f"👤用户词×{user_keyword_matches}({','.join(matched_user_keywords)})")  # 优先显示
+
+            # 过滤：custom_score >= relevance_threshold
+            # 默认阈值0.3 = 至少匹配：1个用户关键词 OR (URL路径 + 预定义词)
+            if custom_score >= relevance_threshold:
+                url_data["custom_score"] = custom_score
+                url_data["matched_reasons"] = matched_reasons
+                high_score_urls.append(url_data)
+
+                if len(high_score_urls) <= 10:  # 只显示前10个的详细信息
+                    print(f"[UrlSeedingCrawler] ✓ 通过: {title[:40]} (自定义分数={custom_score:.2f}, {', '.join(matched_reasons[:2])})")
+            else:
+                skipped_count += 1
+                if skipped_count <= 5:  # 只显示前5个被跳过的
+                    print(f"[UrlSeedingCrawler] ✗ 跳过: {title[:40]} (自定义分数={custom_score:.2f} < 阈值{relevance_threshold})")
+
+        # 按自定义分数排序，取top N
+        high_score_urls.sort(key=lambda x: x.get("custom_score", 0), reverse=True)
+        selected_urls = high_score_urls[: max_pages * 2]  # 取2倍数量，应对去重损失
+
+        stats["after_bm25_filter"] = len(selected_urls)
+        print(f"[UrlSeedingCrawler] ✓ 智能过滤后剩余: {len(selected_urls)} 个URL (总共跳过{skipped_count}个)")
+
+        # 显示过滤后分数分布
+        if selected_urls:
+            top_5_scores = [x.get("custom_score", 0) for x in selected_urls[:5]]
+            print(f"[UrlSeedingCrawler] 前5个URL的自定义分数: {[f'{s:.2f}' for s in top_5_scores]}")
+
+        if not selected_urls:
+            print("[UrlSeedingCrawler] 智能过滤后无剩余URL，跳过此源")
+            return newly_crawled_data, stats
+
+        print("\n[UrlSeedingCrawler] ===== 第3步：已访问URL过滤 =====")
+
+        # 批量检查已访问URL
+        all_urls = [u["url"] for u in selected_urls]
+        visited_url_map = {}
+        try:
+            visited_url_map = NewsVisitedUrlService.batch_check_visited(tenant_id, all_urls)
+        except Exception as e:
+            print(f"[UrlSeedingCrawler] 警告: 批量检查URL失败: {e}")
+
+        # 过滤掉已访问URL
+        unvisited_urls = [u for u in selected_urls if not visited_url_map.get(u["url"], False)]
+
+        stats["after_visited_filter"] = len(unvisited_urls)
+        print(f"[UrlSeedingCrawler] ✓ 过滤已访问后剩余: {len(unvisited_urls)} 个URL")
+
+        if not unvisited_urls:
+            print("[UrlSeedingCrawler] 所有URL均已访问，跳过此源")
+            return newly_crawled_data, stats
+
+        # 取最终要爬取的URL数量
+        urls_to_crawl = unvisited_urls[:max_pages]
+
+        print("\n[UrlSeedingCrawler] ===== 第4步：精准爬取 =====")
+        print(f"[UrlSeedingCrawler] 将爬取 {len(urls_to_crawl)} 个精选URL")
+
+        # 爬取选中的URL
+        # 配置爬虫超时时间（大规模爬取优化）
+        crawler_config = CrawlerRunConfig(
+            page_timeout=20000,  # 页面加载超时：20秒（适合大规模爬取）
+            wait_until="domcontentloaded",  # 等待DOM加载完成即可，不等待所有资源
+            verbose=False,  # 减少日志输出
+        )
+
+        async with AsyncWebCrawler() as crawler:
+            for idx, url_data in enumerate(urls_to_crawl):
+                url = url_data["url"]
+                custom_score = url_data.get("custom_score", 0)
+                matched_reasons = url_data.get("matched_reasons", [])
+                head_title = url_data.get("head_data", {}).get("title", "")
+
+                print(f"\n[UrlSeedingCrawler] [{idx + 1}/{len(urls_to_crawl)}] 爬取: {head_title[:50]}...")
+                print(f"[UrlSeedingCrawler]   URL: {url}")
+                print(f"[UrlSeedingCrawler]   自定义分数: {custom_score:.2f} ({', '.join(matched_reasons[:2])})")
+
+                try:
+                    result = await crawler.arun(url=url, config=crawler_config, bypass_cache=True)
+
+                    if not result.success:
+                        stats["crawled"] += 1
+                        urls_to_record.append(
+                            {
+                                "url": url,
+                                "source_id": source_id,
+                                "failed": True,
+                                "is_policy": False,
+                                "collected": False,
+                            }
+                        )
+                        print("[UrlSeedingCrawler]   ✗ 爬取失败")
+                        continue
+
+                    stats["crawled"] += 1
+
+                    # 提取内容
+                    content_text = self._extract_content(result)
+                    if not content_text or len(content_text.strip()) < 100:
+                        urls_to_record.append(
+                            {
+                                "url": url,
+                                "source_id": source_id,
+                                "failed": False,
+                                "is_policy": True,
+                                "collected": False,
+                                "title": head_title,
+                            }
+                        )
+                        print("[UrlSeedingCrawler]   ✗ 内容过短")
+                        continue
+
+                    # 提取标题
+                    title = self._extract_title(result) or head_title
+
+                    # 去重检查
+                    content_hash = hashlib.sha256(content_text.encode("utf-8")).hexdigest()
+
+                    # 内存去重
+                    if content_hash in persistent_hashes:
+                        stats["duplicate"] += 1
+                        print("[UrlSeedingCrawler]   ✗ 重复内容（内存）")
+                        urls_to_record.append(
+                            {
+                                "url": url,
+                                "source_id": source_id,
+                                "failed": False,
+                                "is_policy": True,
+                                "collected": False,
+                                "title": title,
+                                "page_hash": content_hash,
+                            }
+                        )
+                        continue
+
+                    # 数据库去重
+                    try:
+                        from api.db.services.news_service import NewsContentService
+
+                        if NewsContentService.model.select().where(NewsContentService.model.original_url == url).exists():
+                            stats["duplicate"] += 1
+                            print("[UrlSeedingCrawler]   ✗ 重复内容（数据库）")
+                            urls_to_record.append(
+                                {
+                                    "url": url,
+                                    "source_id": source_id,
+                                    "failed": False,
+                                    "is_policy": True,
+                                    "collected": False,
+                                    "title": title,
+                                    "page_hash": content_hash,
+                                }
+                            )
+                            continue
+                    except Exception as db_error:
+                        print(f"[UrlSeedingCrawler]   ⚠ 数据库去重检查失败: {db_error}")
+
+                    persistent_hashes.add(content_hash)
+
+                    # 下载附件
+                    html = getattr(result, "html", None) or ""
+                    attachments = await self._download_attachments(html, url, title)
+
+                    # 收集内容
+                    article_data = {
+                        "url": url,
+                        "source_id": source_id,
+                        "score": custom_score,  # 使用自定义评分
+                        "final_score": custom_score,  # URL Seeding使用自定义评分
+                        "content": content_text,
+                        "content_hash": content_hash,
+                        "title": title,
+                        "matched_keywords": matched_reasons,  # 记录匹配原因
+                        "crawl_timestamp": datetime.now().isoformat(),
+                        "is_policy": True,  # URL Seeding认为所有通过过滤的都是政策相关
+                        "attachments": attachments,
+                        "attachment_count": len(attachments),
+                    }
+                    newly_crawled_data.append(article_data)
+                    stats["collected"] += 1
+
+                    # 记录成功收集的URL
+                    urls_to_record.append(
+                        {
+                            "url": url,
+                            "source_id": source_id,
+                            "failed": False,
+                            "is_policy": True,
+                            "collected": True,
+                            "title": title,
+                            "page_hash": content_hash,
+                        }
+                    )
+
+                    attachment_tag = f"📎{len(attachments)}" if attachments else ""
+                    print(f"[UrlSeedingCrawler]   ✓ 收集成功 {attachment_tag} [已收集 {stats['collected']}/{max_pages}]")
+
+                    # 达到目标数量，停止爬取
+                    if stats["collected"] >= max_pages:
+                        print(f"[UrlSeedingCrawler] ✓ 已收集到 {max_pages} 篇内容，停止爬取")
+                        break
+
+                except Exception as e:
+                    print(f"[UrlSeedingCrawler]   ✗ 爬取出错: {e}")
+                    urls_to_record.append(
+                        {
+                            "url": url,
+                            "source_id": source_id,
+                            "failed": True,
+                            "is_policy": False,
+                            "collected": False,
+                        }
+                    )
+
+        # 批量记录URL访问
+        if urls_to_record:
+            print(f"\n[UrlSeedingCrawler] 正在记录 {len(urls_to_record)} 个URL访问记录...")
+            try:
+                NewsVisitedUrlService.batch_record_visits(tenant_id, urls_to_record)
+                print("[UrlSeedingCrawler] ✓ URL访问记录已保存")
+            except Exception as record_error:
+                print(f"[UrlSeedingCrawler] 警告: URL访问记录保存失败: {record_error}")
+
+        # 打印统计摘要
+        print("\n[UrlSeedingCrawler] ===== 单源统计摘要 =====")
+        print(f"[UrlSeedingCrawler] URL发现: {stats['discovered_urls']} 个")
+        print(f"[UrlSeedingCrawler] BM25过滤后: {stats['after_bm25_filter']} 个")
+        print(f"[UrlSeedingCrawler] 已访问过滤后: {stats['after_visited_filter']} 个")
+        print(f"[UrlSeedingCrawler] 实际爬取: {stats['crawled']} 个")
+        print(f"[UrlSeedingCrawler] 重复内容: {stats['duplicate']} 个")
+        print(f"[UrlSeedingCrawler] 最终收集: {stats['collected']} 篇")
+
+        return newly_crawled_data, stats
+
+    def _extract_title(self, result) -> str:
+        """从爬取结果中提取标题"""
+        title = getattr(result, "title", "") or ""
+        if not str(title).strip():
+            try:
+                if result.metadata and isinstance(result.metadata, dict):
+                    title = result.metadata.get("title") or title
+            except Exception:
+                pass
+        if not str(title).strip():
+            try:
+                html = getattr(result, "html", None)
+                if html:
+                    from bs4 import BeautifulSoup
+
+                    soup = BeautifulSoup(html, "html.parser")
+                    title = soup.title.string if soup.title and soup.title.string else title
+            except Exception:
+                pass
+        return (title or "").strip()
+
+    def _extract_content(self, result) -> str:
+        """从爬取结果中提取文本内容"""
+        md_raw = getattr(result, "markdown", None)
+        if md_raw is None:
+            return ""
+        elif isinstance(md_raw, str):
+            return md_raw
+        elif isinstance(md_raw, dict):
+            return md_raw.get("str") or md_raw.get("raw_markdown") or md_raw.get("markdown_with_citations") or md_raw.get("markdown") or ""
+        return str(md_raw)
+
+    async def _download_attachments(self, html: str, url: str, title: str) -> list:
+        """下载页面的附件文件"""
+        attachments = []
+        if not html:
+            return attachments
+
+        try:
+            found_attachments = await self.attachment_downloader.find_attachments(html, url)
+
+            if found_attachments:
+                print(f"[UrlSeedingCrawler]    📎 发现 {len(found_attachments)} 个附件")
+
+                base_dir = "crawl4ai_data"
+                safe_title = _sanitize_filename(title[:30] or "untitled")
+                attachment_dir = os.path.join(base_dir, "attachments", safe_title)
+
+                for att in found_attachments[:5]:  # 最多下载5个附件
+                    download_result = await self.attachment_downloader.download_attachment(url=att["url"], save_dir=attachment_dir, filename=att["filename"])
+
+                    if download_result["success"]:
+                        attachments.append(
+                            {
+                                "filename": download_result["filename"],
+                                "filepath": download_result["filepath"],
+                                "size": download_result["size"],
+                                "url": download_result["url"],
+                                "extension": att["extension"],
+                                "link_text": att["link_text"],
+                            }
+                        )
+                        print(f"[UrlSeedingCrawler]       ✓ {download_result['filename']}")
+                    else:
+                        print(f"[UrlSeedingCrawler]       ✗ {att['filename']}")
+
+                print(f"[UrlSeedingCrawler]    ✓ 下载 {len(attachments)}/{len(found_attachments)} 个附件")
+        except Exception as e:
+            print(f"[UrlSeedingCrawler]    ✗ 附件处理出错: {e}")
+
+        return attachments
+
+    def _save_crawl_log(self, keywords: list, total_collected: int, total_duration: float, source_stats: list):
+        """保存详细的爬取日志到文件"""
+        import json
+        import time
+
+        log_dir = "crawl4ai_data/logs"
+        os.makedirs(log_dir, exist_ok=True)
+
+        timestamp = int(time.time() * 1000)
+        log_filename = f"url_seeding_log_{timestamp}.json"
+        log_path = os.path.join(log_dir, log_filename)
+
+        log_data = {
+            "method": "url_seeding",
+            "timestamp": timestamp,
+            "datetime": datetime.now().isoformat(),
+            "keywords": keywords,
+            "total_duration_seconds": round(total_duration, 2),
+            "total_collected": total_collected,
+            "source_count": len(source_stats),
+            "sources": source_stats,
+        }
+
+        try:
+            with open(log_path, "w", encoding="utf-8") as f:
+                json.dump(log_data, f, ensure_ascii=False, indent=2)
+            print(f"[UrlSeedingCrawler] 日志已保存: {log_path}")
+        except Exception as e:
+            print(f"[UrlSeedingCrawler] 警告: 日志保存失败: {e}")
 
 
 # =================================================================================
@@ -1456,6 +2298,7 @@ async def _async_topic_search_worker(
         new_articles = await topic_crawler.search_by_topic_from_sources(
             sources=sources_from_db,
             keywords=keywords,
+            tenant_id=tenant_id,  # 【新增】传递 tenant_id 用于URL去重
             max_depth=max_depth,
             max_pages_per_source=max_pages_per_source,
             max_crawl_pages_per_source=max_crawl_pages_per_source,
@@ -1570,6 +2413,182 @@ def _background_topic_search_wrapper(
     asyncio.run(_async_topic_search_worker(tenant_id, source_ids, keywords, max_depth, max_pages_per_source, max_crawl_pages_per_source, score_threshold, kb_id, parse))
 
 
+async def _async_url_seeding_search_worker(
+    tenant_id: str,
+    source_ids: list,
+    keywords: list,
+    max_pages_per_source: int,
+    max_urls_per_source: int,  # 新增：每源最大URL发现数量
+    relevance_threshold: float,  # 改名：相关性阈值
+    kb_id: str = None,
+    parse: bool = False,
+):
+    """URL Seeding主题搜索的异步任务
+
+    改进点：
+    - 使用AsyncUrlSeeder先发现所有URL
+    - 自定义智能过滤（URL路径+关键词匹配）替代失效的BM25
+    - 只爬取精选URL
+    - 移除PolicyFeatureDetector，简化过滤逻辑
+    """
+    kb_info = f", 目标知识库: {kb_id}" if kb_id else ""
+    print(f"[URL Seeding任务] 开始搜索... (关键词: {keywords}, 新闻源数: {len(source_ids)}, 每源最大收集: {max_pages_per_source}{kb_info})")
+
+    try:
+        content_hashes = NewsContentService.get_all_content_hashes(tenant_id)
+        print(f"[URL Seeding任务] 成功从数据库加载 {len(content_hashes)} 个已存在的历史内容哈希。")
+    except Exception as e:
+        print(f"[URL Seeding任务] 警告: 从数据库加载历史哈希失败: {e}")
+        content_hashes = set()
+
+    # 从数据库加载新闻源
+    sources_from_db = []
+    for sid in source_ids:
+        try:
+            _, source_model = NewsSourceService.get_by_id(sid)
+            if source_model:
+                sources_from_db.append(NewsSourceService.to_dict(source_model))
+            else:
+                print(f"[URL Seeding任务] 警告: 未在数据库中找到 ID 为 {sid} 的新闻源。")
+        except Exception as e:
+            print(f"[URL Seeding任务] 错误: 查询新闻源 {sid} 时出错: {e}")
+
+    if not sources_from_db:
+        print("[URL Seeding任务] 错误: 没有有效的新闻源，任务终止。")
+        return
+
+    url_seeding_crawler = UrlSeedingCrawler()
+    instant_task_id = get_uuid()
+
+    try:
+        new_articles = await url_seeding_crawler.search_by_url_seeding(
+            sources=sources_from_db,
+            keywords=keywords,
+            tenant_id=tenant_id,
+            max_pages_per_source=max_pages_per_source,
+            max_urls_per_source=max_urls_per_source,  # 传递最大URL数量
+            relevance_threshold=relevance_threshold,  # 使用相关性阈值
+            persistent_hashes=content_hashes,
+        )
+
+        if not new_articles:
+            print("[URL Seeding任务] 未发现任何相关新内容。")
+            return
+
+        print(f"[URL Seeding任务] 发现 {len(new_articles)} 篇相关内容，开始处理...")
+
+        total_saved = 0
+        for page_data in new_articles:
+            content_hash = page_data.get("content_hash")
+            source_id = page_data.get("source_id")
+            source_stub = next((s for s in sources_from_db if s.get("id") == source_id), {})
+            page_data = _enrich_metadata(page_data, source_stub)
+            page_title = _sanitize_filename((page_data.get("title") or "untitled"))
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            filename = f"url_seeding_{page_title}_{timestamp}_{content_hash[:16]}.json"
+
+            base_dir = "crawl4ai_data"
+            topic_dir = _sanitize_filename("_".join(keywords[:3]))
+            output_dir = os.path.join(base_dir, "url_seeding_search", topic_dir)
+            output_file = os.path.join(output_dir, filename)
+
+            os.makedirs(output_dir, exist_ok=True)
+
+            async with aiofiles.open(output_file, "w", encoding="utf-8") as f:
+                await f.write(json.dumps(page_data, ensure_ascii=False, indent=2))
+            print(f"[文件存储] 成功保存: {output_file}")
+
+            try:
+                news_content = NewsContentService.create_content(tenant_id=tenant_id, task_id=instant_task_id, source_id=source_id, article_data=page_data, kb_id=kb_id)
+                print(f"[数据库同步] 成功将内容 '{page_title}' 同步到数据库。")
+                total_saved += 1
+
+                if kb_id:
+                    document_id = None
+                    try:
+                        if isinstance(news_content, dict):
+                            document_id = news_content.get("document_id")
+                    except Exception:
+                        document_id = None
+
+                    # 上传主文档（JSON文件）
+                    await _upload_to_knowledgebase(
+                        kb_id=kb_id,
+                        tenant_id=tenant_id,
+                        file_path=output_file,
+                        article_data=page_data,
+                        parse=parse,
+                        document_id=document_id,
+                    )
+
+                    # 上传附件
+                    attachments = page_data.get("attachments", [])
+                    if attachments:
+                        print(f"[知识库集成] 开始上传 {len(attachments)} 个附件...")
+                        for idx, attachment in enumerate(attachments):
+                            try:
+                                attachment_path = attachment.get("filepath")
+                                if attachment_path and os.path.exists(attachment_path):
+                                    attachment_article_data = {
+                                        "title": f"{page_title}_附件_{idx + 1}_{attachment.get('filename')}",
+                                        "url": attachment.get("url", ""),
+                                        "content": f"这是政策文档《{page_title}》的附件文件。\n\n原文链接: {page_data.get('url')}\n附件名称: {attachment.get('filename')}\n文件大小: {attachment.get('size')} bytes",
+                                    }
+
+                                    attachment_upload_success = await _upload_to_knowledgebase(
+                                        kb_id=kb_id,
+                                        tenant_id=tenant_id,
+                                        file_path=attachment_path,
+                                        article_data=attachment_article_data,
+                                        parse=parse,
+                                        document_id=None,
+                                    )
+
+                                    if attachment_upload_success:
+                                        print(f"[知识库集成] ✓ 附件上传成功: {attachment.get('filename')}")
+                                    else:
+                                        print(f"[知识库集成] ✗ 附件上传失败: {attachment.get('filename')}")
+                                else:
+                                    print(f"[知识库集成] ✗ 附件文件不存在: {attachment_path}")
+
+                            except Exception as att_err:
+                                print(f"[知识库集成] 附件上传出错: {att_err}")
+
+            except Exception as e:
+                print(f"[数据库同步] 警告: 写入数据库失败: {e}")
+
+        print(f"\n[URL Seeding任务] 完成。共存储了 {total_saved} 篇相关内容。")
+
+    except Exception as e:
+        print(f"[URL Seeding任务] 发生严重错误: {e}")
+        traceback.print_exc()
+
+
+def _background_url_seeding_search_wrapper(
+    tenant_id: str,
+    source_ids: list,
+    keywords: list,
+    max_pages_per_source: int,
+    max_urls_per_source: int,  # 新增：每源最大URL发现数量
+    relevance_threshold: float,  # 改名：相关性阈值
+    kb_id: str = None,
+    parse: bool = False,
+):
+    """URL Seeding搜索的同步包装函数"""
+    asyncio.run(
+        _async_url_seeding_search_worker(
+            tenant_id,
+            source_ids,
+            keywords,
+            max_pages_per_source,
+            max_urls_per_source,  # 传递最大URL数量
+            relevance_threshold,  # 传递相关性阈值
+            kb_id,
+            parse,
+        )
+    )
+
+
 # =================================================================================
 # Flask Blueprint 和 API 端点
 # =================================================================================
@@ -1675,9 +2694,9 @@ async def create_news_source(tenant_id):  # <--- 修改1：添加 async
                 item["fetch_config"] = {"selector": None, "encoding": "utf-8", "timeout": 30, "headers": {}}
             if "remark" not in item:
                 item["remark"] = ""
-            if "type" not in item:
-                # 根据你的数据库模型，type 不能为空
-                return get_json_result(code=RetCode.ARGUMENT_ERROR, message=f"第 {index + 1} 条数据缺少类型(type)")
+            if "source_type" not in item:
+                # 数据库使用source_type字段，默认为news
+                item["source_type"] = "news"
 
             # 调用 Service
             # 注意：如果 NewsSourceService.create_source 内部也涉及数据库异步操作，
@@ -1889,6 +2908,138 @@ async def topic_search_api(tenant_id):
                     "max_pages_per_source": max_pages_per_source,
                     "max_crawl_pages_per_source": max_crawl_pages_per_source,
                     "score_threshold": score_threshold,
+                    "kb_id": kb_id,
+                },
+            }
+        )
+
+    except Exception as e:
+        traceback.print_exc()
+        return server_error_response(e)
+
+
+# ========== URL Seeding智能搜索抓取 (方案A) ==========
+
+
+@manager.route("/news_collector/url_seeding_search", methods=["POST"])
+@token_required
+async def url_seeding_search_api(tenant_id):
+    """
+    URL Seeding智能搜索抓取（改进版）：先发现URL，再智能过滤，后精准爬取
+
+    改进点（相比topic_search）：
+    1. 使用AsyncUrlSeeder快速发现所有URL（sitemap + Common Crawl）
+    2. **自定义智能过滤**：URL路径模式匹配 + title关键词匹配
+       - 原因：crawl4ai的BM25评分机制存在问题（所有URL返回相同分数0.500）
+       - 改用URL路径模式（zcfg、zcwj、policy等）+ title关键词进行过滤
+    3. 只爬取高分URL，避免浪费资源
+    4. 超时优化：页面加载20秒，附件下载25秒（适合大规模爬取）
+    5. 预期性能提升：快速URL发现 + 精准过滤 + 高效爬取
+
+    请求体:
+    {
+        "source_ids": ["id1", "id2"],           // 新闻源ID列表
+        "keywords": ["电力市场", "现货交易"],     // 关键词列表
+        "max_pages_per_source": 30,             // 每源最大收集篇数 (可选, 默认30)
+        "max_urls_per_source": 1000,            // 每源最大URL发现数量 (可选, 默认1000)
+                                                // 从sitemap+CommonCrawl发现的URL总数上限
+                                                // 推荐值：1000（平衡速度和覆盖度）
+                                                // 更多：2000-5000（更全面但更慢）
+                                                // 更少：500（更快但可能遗漏）
+        "relevance_threshold": 0.3,             // 相关性阈值 (可选, 默认0.3)
+                                                // 评分范围0-1.0：URL路径0.15 + 预定义词0.25 + 用户词0.6
+                                                // 用户关键词权重最高（60%），优先匹配用户搜索意图
+                                                // 推荐值：0.3（至少匹配URL或部分关键词）
+                                                // 更严格：0.5（需要匹配用户关键词）
+                                                // 更宽松：0.2（匹配部分即可）
+                                                // 注：为兼容旧代码，仍支持"bm25_threshold"参数名
+        "kb_id": "knowledge_base_id",           // 目标知识库ID (可选)
+        "parse": false                          // 是否自动解析 (可选, 默认false)
+    }
+
+    返回:
+    {
+        "code": 0,
+        "message": "已成功启动URL Seeding智能搜索任务...",
+        "data": {
+            "params": {
+                "source_ids": [...],
+                "keywords": [...],
+                "max_pages_per_source": 30,
+                "max_urls_per_source": 1000,
+                "relevance_threshold": 0.3
+            }
+        }
+    }
+    """
+    req_data = await request.get_json()
+
+    source_ids = req_data.get("source_ids") or []
+    source_types = req_data.get("source_types") or []
+    keywords = req_data.get("keywords")
+    max_pages_per_source = int(req_data.get("max_pages_per_source", 30))
+    max_urls_per_source = int(req_data.get("max_urls_per_source", 1000))  # 新增：每源最大URL发现数量，默认1000
+
+    # 兼容旧参数名（bm25_threshold）和新参数名（relevance_threshold）
+    relevance_threshold = float(req_data.get("relevance_threshold") or req_data.get("bm25_threshold", 0.3))
+
+    kb_id = req_data.get("kb_id")
+    parse = req_data.get("parse", False)
+
+    # 参数验证
+    if isinstance(source_types, str):
+        source_types = [s.strip() for s in source_types.split(",") if s.strip()]
+    if not isinstance(source_ids, list):
+        return get_json_result(code=400, message="'source_ids' 必须是数组")
+
+    if not keywords or not isinstance(keywords, list) or len(keywords) == 0:
+        return get_json_result(code=400, message="关键词列表 (keywords) 不能为空，应为非空数组")
+
+    if source_types:
+        type_sources = NewsSourceService.get_by_types(tenant_id, source_types)
+        source_ids.extend([s["id"] for s in type_sources])
+
+    seen = set()
+    resolved_source_ids = []
+    for sid in source_ids:
+        if sid and sid not in seen:
+            seen.add(sid)
+            resolved_source_ids.append(sid)
+
+    if not resolved_source_ids:
+        return get_json_result(code=400, message="请提供 source_ids 或 source_types 中至少一项有效内容。")
+
+    # 验证知识库（如果指定）
+    if kb_id:
+        if not KnowledgebaseService.accessible(kb_id, tenant_id):
+            return get_json_result(code=403, message=f"无权访问知识库 {kb_id} 或知识库不存在。")
+
+    try:
+        thread = threading.Thread(
+            target=_background_url_seeding_search_wrapper,
+            args=(
+                tenant_id,
+                resolved_source_ids,
+                keywords,
+                max_pages_per_source,
+                max_urls_per_source,  # 传递最大URL数量
+                relevance_threshold,  # 传递相关性阈值
+                kb_id,
+                parse,
+            ),
+        )
+        thread.start()
+
+        return get_json_result(
+            data={
+                "message": f"已成功启动URL Seeding智能搜索任务，关键词: {keywords}，新闻源数: {len(resolved_source_ids)}",
+                "params": {
+                    "source_ids": resolved_source_ids,
+                    "source_types": source_types,
+                    "keywords": keywords,
+                    "max_pages_per_source": max_pages_per_source,
+                    "max_urls_per_source": max_urls_per_source,  # 返回最大URL数量
+                    "relevance_threshold": relevance_threshold,  # 返回实际使用的阈值
                     "kb_id": kb_id,
                 },
             }
