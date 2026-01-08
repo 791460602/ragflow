@@ -1210,6 +1210,45 @@ class NewsContent(DataBaseModel):
         db_table = "news_content"
 
 
+class NewsVisitedUrl(DataBaseModel):
+    """URL访问记录（避免重复爬取）
+
+    用于记录所有已访问的URL，包括：
+    - 已收集的政策页面
+    - 被过滤掉的非政策页面
+    - 访问失败的页面
+
+    作用：第二次爬取时跳过已访问URL，避免重复爬取
+    """
+
+    id = CharField(max_length=32, primary_key=True)
+    tenant_id = CharField(max_length=32, null=False, help_text="租户ID", index=True)
+
+    # URL信息
+    url = CharField(max_length=1024, null=False, help_text="访问的URL", index=True)
+    url_hash = CharField(max_length=64, null=False, help_text="URL哈希值（用于快速查询）", index=True)
+    source_id = CharField(max_length=128, null=True, help_text="来源新闻源ID", index=True)
+
+    # 访问结果
+    visited_at = BigIntegerField(null=False, help_text="访问时间戳", index=True)
+    is_policy = BooleanField(default=False, help_text="是否为政策页面")
+    collected = BooleanField(default=False, help_text="是否已收集入库")
+    failed = BooleanField(default=False, help_text="是否访问失败")
+
+    # 可选字段
+    title = CharField(max_length=512, null=True, help_text="页面标题")
+    page_hash = CharField(max_length=64, null=True, help_text="页面内容哈希")
+
+    def __str__(self):
+        return f"VisitedUrl_{self.url[:50]}"
+
+    class Meta:
+        db_table = "news_visited_url"
+        indexes = (
+            (("tenant_id", "url_hash"), True),  # 联合唯一索引
+        )
+
+
 # ======================
 # 爬虫目标管理模型
 # ======================

@@ -12,6 +12,42 @@
     "region":"国家"
   },
   {
+    "name": "国家能源局-政府信息公开目录",
+    "url": "https://www.nea.gov.cn/webroot2014/index.htm",
+    "source_type":"policy",
+    "region":"国家"
+  },
+  {
+    "name": "国务院政策文件库",
+    "url": "https://sousuo.www.gov.cn/zcwjk/policyDocumentLibrary?q=&t=zhengcelibrary&orpro=",
+    "source_type":"policy",
+    "region":"国家"
+  },
+  {
+    "name": "国家发展和改革委员会-规范性文件",
+    "url": "https://www.ndrc.gov.cn/xxgk/zcfb/ghxwj/index_2.html",
+    "source_type":"policy",
+    "region":"国家"
+  },
+  {
+    "name": "中国电力联合企业",
+    "url": "https://www.cec.org.cn/menu/index.html?172",
+    "source_type":"policy",
+    "region":"国家"
+  },
+  {
+    "name": "北极星电力市场网",
+    "url": "https://shoudian.bjx.com.cn/",
+    "source_type":"policy",
+    "region":"国家"
+  },
+  {
+    "name": "首都电力交易中心",
+    "url": "https://pmos.bj.sgcc.com.cn/pxf-settlement-outnetpub/#/pxf-settlement-outnetpub/columnHomeLeftMenuNew",
+    "source_type":"policy",
+    "region":"北京"
+  },
+  {
     "name": "北京市发展和改革委员会",
     "url": "http://fgw.beijing.gov.cn/",
     "source_type":"policy",
