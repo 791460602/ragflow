@@ -884,8 +884,9 @@ class TopicCrawler:
             scraping_strategy=LXMLWebScrapingStrategy(),
             stream=False,
             verbose=True,
-            page_timeout=8000,
-            wait_until="commit",
+            page_timeout=10000,  # 页面超时10秒（从8秒增加，确保页面完全加载）
+            wait_until="domcontentloaded",  # 【修复】改为 domcontentloaded，确保 DOM 和链接加载完成
+            delay_before_return_html=1.5,  # 【新增】额外等待1.5秒，确保动态内容加载完成
         )
 
         crawler = None
@@ -2159,106 +2160,131 @@ async def _upload_to_knowledgebase(kb_id: str, tenant_id: str, file_path: str, a
 # =================================================================================
 # 后台异步任务
 # =================================================================================
-async def _async_crawl_from_post_worker(tenant_id: str, source_ids: list, depth: int, max_pages: int, kb_id: str = None, parse: bool = False):
+async def _async_crawl_from_post_worker(tenant_id: str, source_ids: list, depth: int, max_pages: int, kb_id: str = None, parse: bool = False, log_id: str = None):
     """基于新闻源的异步抓取任务"""
     kb_info = f", 目标知识库: {kb_id}" if kb_id else ""
     print(f"[后台任务] 开始处理 {len(source_ids)} 个新闻源... (深度: {depth}, 每源最大页数: {max_pages}{kb_info})")
 
-    try:
-        content_hashes = NewsContentService.get_all_content_hashes(tenant_id)
-        print(f"[后台任务] 成功从数据库加载 {len(content_hashes)} 个已存在的历史内容哈希。")
-    except Exception as e:
-        print(f"[后台任务] 严重错误: 从数据库加载历史哈希失败: {e}")
-        content_hashes = set()
-
-    crawler = LibraryCrawler()
-    instant_task_id = get_uuid()
-
-    sources_from_db = []
-    for sid in source_ids:
+    # 更新日志状态为运行中
+    if log_id:
         try:
-            _, source_model = NewsSourceService.get_by_id(sid)
-            if source_model:
-                sources_from_db.append(NewsSourceService.to_dict(source_model))
-            else:
-                print(f"[后台任务] 警告: 未在数据库中找到 ID 为 {sid} 的新闻源。")
+            CrawlTaskLogService.mark(log_id, "running")
         except Exception as e:
-            print(f"[后台任务] 错误: 查询新闻源 {sid} 时出错: {e}")
+            print(f"[后台任务] 警告: 更新日志状态失败: {e}")
 
-    total_new_articles_saved = 0
-    for i, source in enumerate(sources_from_db):
-        source_id = source.get("id")
-        source_name = source.get("name")
-        start_url = source.get("url")
-
-        print(f"\n[后台任务] 正在处理第 {i + 1}/{len(sources_from_db)} 个源: {source_name} ({start_url})")
-
-        if not start_url:
-            continue
-
-        selectors = source.get("fetch_config") if source.get("remark") == "1" else None
-
+    try:
         try:
-            new_articles = await crawler.recursive_crawl(start_url=start_url, depth=depth, max_pages=max_pages, persistent_hashes=content_hashes, selectors=selectors)
+            content_hashes = NewsContentService.get_all_content_hashes(tenant_id)
+            print(f"[后台任务] 成功从数据库加载 {len(content_hashes)} 个已存在的历史内容哈希。")
+        except Exception as e:
+            print(f"[后台任务] 严重错误: 从数据库加载历史哈希失败: {e}")
+            content_hashes = set()
 
-            if not new_articles:
-                print(f"[后台任务] 源 '{source_name}' 未发现任何新内容。")
+        crawler = LibraryCrawler()
+        instant_task_id = get_uuid()
+
+        sources_from_db = []
+        for sid in source_ids:
+            try:
+                _, source_model = NewsSourceService.get_by_id(sid)
+                if source_model:
+                    sources_from_db.append(NewsSourceService.to_dict(source_model))
+                else:
+                    print(f"[后台任务] 警告: 未在数据库中找到 ID 为 {sid} 的新闻源。")
+            except Exception as e:
+                print(f"[后台任务] 错误: 查询新闻源 {sid} 时出错: {e}")
+
+        total_new_articles_saved = 0
+        for i, source in enumerate(sources_from_db):
+            source_id = source.get("id")
+            source_name = source.get("name")
+            start_url = source.get("url")
+
+            print(f"\n[后台任务] 正在处理第 {i + 1}/{len(sources_from_db)} 个源: {source_name} ({start_url})")
+
+            if not start_url:
                 continue
 
-            print(f"[后台任务] 源 '{source_name}' 发现 {len(new_articles)} 篇新内容，开始处理...")
+            selectors = source.get("fetch_config") if source.get("remark") == "1" else None
 
-            for page_data in new_articles:
-                content_hash = page_data.get("content_hash")
-                page_data = _enrich_metadata(page_data, source)
-                page_title = _sanitize_filename((page_data.get("title") or "untitled"))
-                timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-                filename = f"{page_title}_{timestamp}_{content_hash[:16]}.json"
+            try:
+                new_articles = await crawler.recursive_crawl(start_url=start_url, depth=depth, max_pages=max_pages, persistent_hashes=content_hashes, selectors=selectors)
 
-                base_dir = "crawl4ai_data"
-                site_domain = _sanitize_filename(urlparse(start_url).netloc)
-                output_dir = os.path.join(base_dir, site_domain)
-                output_file = os.path.join(output_dir, filename)
+                if not new_articles:
+                    print(f"[后台任务] 源 '{source_name}' 未发现任何新内容。")
+                    continue
 
-                os.makedirs(output_dir, exist_ok=True)
+                print(f"[后台任务] 源 '{source_name}' 发现 {len(new_articles)} 篇新内容，开始处理...")
 
-                async with aiofiles.open(output_file, "w", encoding="utf-8") as f:
-                    await f.write(json.dumps(page_data, ensure_ascii=False, indent=2))
-                print(f"[文件存储] 成功保存新页面: {output_file}")
+                for page_data in new_articles:
+                    content_hash = page_data.get("content_hash")
+                    page_data = _enrich_metadata(page_data, source)
+                    page_title = _sanitize_filename((page_data.get("title") or "untitled"))
+                    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                    filename = f"{page_title}_{timestamp}_{content_hash[:16]}.json"
 
-                try:
-                    news_content = NewsContentService.create_content(tenant_id=tenant_id, task_id=instant_task_id, source_id=source_id, article_data=page_data, kb_id=kb_id)
-                    print(f"[数据库同步] 成功将新内容 '{page_title}' 同步到数据库。")
-                    total_new_articles_saved += 1
+                    base_dir = "crawl4ai_data"
+                    site_domain = _sanitize_filename(urlparse(start_url).netloc)
+                    output_dir = os.path.join(base_dir, site_domain)
+                    output_file = os.path.join(output_dir, filename)
 
-                    if kb_id:
-                        document_id = None
-                        try:
-                            if isinstance(news_content, dict):
-                                document_id = news_content.get("document_id")
-                        except Exception:
+                    os.makedirs(output_dir, exist_ok=True)
+
+                    async with aiofiles.open(output_file, "w", encoding="utf-8") as f:
+                        await f.write(json.dumps(page_data, ensure_ascii=False, indent=2))
+                    print(f"[文件存储] 成功保存新页面: {output_file}")
+
+                    try:
+                        news_content = NewsContentService.create_content(tenant_id=tenant_id, task_id=instant_task_id, source_id=source_id, article_data=page_data, kb_id=kb_id)
+                        print(f"[数据库同步] 成功将新内容 '{page_title}' 同步到数据库。")
+                        total_new_articles_saved += 1
+
+                        if kb_id:
                             document_id = None
+                            try:
+                                if isinstance(news_content, dict):
+                                    document_id = news_content.get("document_id")
+                            except Exception:
+                                document_id = None
 
-                        upload_success = await _upload_to_knowledgebase(
-                            kb_id=kb_id,
-                            tenant_id=tenant_id,
-                            file_path=output_file,
-                            article_data=page_data,
-                            parse=parse,
-                            document_id=document_id,
-                        )
-                        if upload_success:
-                            print(f"[知识库集成] 成功将内容上传到知识库 {kb_id}")
-                        else:
-                            print("[知识库集成] 上传到知识库失败，但本地文件和数据库已保存")
+                            upload_success = await _upload_to_knowledgebase(
+                                kb_id=kb_id,
+                                tenant_id=tenant_id,
+                                file_path=output_file,
+                                article_data=page_data,
+                                parse=parse,
+                                document_id=document_id,
+                            )
+                            if upload_success:
+                                print(f"[知识库集成] 成功将内容上传到知识库 {kb_id}")
+                            else:
+                                print("[知识库集成] 上传到知识库失败，但本地文件和数据库已保存")
 
-                except Exception as e:
-                    print(f"[数据库同步] 警告: 写入数据库失败: {e}")
+                    except Exception as e:
+                        print(f"[数据库同步] 警告: 写入数据库失败: {e}")
 
-        except Exception as e:
-            print(f"[后台任务] 处理源 {source_name} 时发生严重错误: {e}")
-            traceback.print_exc()
+            except Exception as e:
+                print(f"[后台任务] 处理源 {source_name} 时发生严重错误: {e}")
+                traceback.print_exc()
 
-    print(f"\n[后台任务] 所有新闻源处理完毕。本次任务共发现并存储了 {total_new_articles_saved} 篇全新内容。")
+        print(f"\n[后台任务] 所有新闻源处理完毕。本次任务共发现并存储了 {total_new_articles_saved} 篇全新内容。")
+        
+        # 更新日志状态为完成
+        if log_id:
+            try:
+                CrawlTaskLogService.mark(log_id, "completed")
+            except Exception as e:
+                print(f"[后台任务] 警告: 更新日志完成状态失败: {e}")
+    
+    except Exception as e:
+        print(f"[后台任务] 发生严重错误: {e}")
+        traceback.print_exc()
+        # 更新日志状态为失败
+        if log_id:
+            try:
+                CrawlTaskLogService.mark(log_id, "failed", str(e))
+            except Exception as mark_err:
+                print(f"[后台任务] 警告: 更新日志失败状态失败: {mark_err}")
 
 
 async def _async_topic_search_worker(
@@ -2401,9 +2427,9 @@ async def _async_topic_search_worker(
         traceback.print_exc()
 
 
-def _background_crawl_from_post_wrapper(tenant_id: str, source_ids: list, depth: int, max_pages: int, kb_id: str = None, parse: bool = False):
+def _background_crawl_from_post_wrapper(tenant_id: str, source_ids: list, depth: int, max_pages: int, kb_id: str = None, parse: bool = False, log_id: str = None):
     """同步的包装函数，在线程中启动asyncio事件循环"""
-    asyncio.run(_async_crawl_from_post_worker(tenant_id, source_ids, depth, max_pages, kb_id, parse))
+    asyncio.run(_async_crawl_from_post_worker(tenant_id, source_ids, depth, max_pages, kb_id, parse, log_id))
 
 
 def _background_topic_search_wrapper(
