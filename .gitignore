@@ -21,6 +21,7 @@ Cargo.lock
 
 .idea/
 .vscode/
+.gemini/
 
 # Exclude Mac generated files
 .DS_Store
@@ -36,6 +37,7 @@ CLAUDE.md
 crawl4ai_data/help/
 crawl4ai_data/attachments/
 crawl4ai_data/topic_search/
+crawl4ai_data/url_seeding_search/
 
 # Exclude sdk generated files
 sdk/python/ragflow.egg-info/
