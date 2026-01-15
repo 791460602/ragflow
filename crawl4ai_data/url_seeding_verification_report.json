@@ -1,0 +1,546 @@
+{
+  "total_sources": 41,
+  "tested_sources": 41,
+  "verification_results": [
+    {
+      "url": "https://www.nea.gov.cn/webroot2014/index.htm",
+      "domain": "www.nea.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": true,
+        "record_count": 1
+      },
+      "recommendation": "url_seeding_cc"
+    },
+    {
+      "url": "http://www.nea.gov.cn/",
+      "domain": "www.nea.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": true,
+        "record_count": 1
+      },
+      "recommendation": "url_seeding_cc"
+    },
+    {
+      "url": "https://www.ndrc.gov.cn/",
+      "domain": "www.ndrc.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": false,
+        "error": "API error: 404"
+      },
+      "recommendation": "deep_crawling"
+    },
+    {
+      "url": "https://www.cec.org.cn/menu/index.html?172",
+      "domain": "www.cec.org.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": true,
+        "record_count": 3
+      },
+      "recommendation": "url_seeding_cc"
+    },
+    {
+      "url": "https://www.ndrc.gov.cn/xxgk/zcfb/ghxwj/index_2.html",
+      "domain": "www.ndrc.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": false,
+        "error": "API error: 404"
+      },
+      "recommendation": "deep_crawling"
+    },
+    {
+      "url": "https://sousuo.www.gov.cn/zcwjk/policyDocumentLibrary?q=&t=zhengcelibrary&orpro=",
+      "domain": "sousuo.www.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": true,
+        "record_count": 1
+      },
+      "recommendation": "url_seeding_cc"
+    },
+    {
+      "url": "https://pmos.bj.sgcc.com.cn/pxf-settlement-outnetpub/#/pxf-settlement-outnetpub/columnHomeLeftMenuNew",
+      "domain": "pmos.bj.sgcc.com.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": false,
+        "error": "API error: 404"
+      },
+      "recommendation": "deep_crawling"
+    },
+    {
+      "url": "http://fgw.beijing.gov.cn/",
+      "domain": "fgw.beijing.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": true,
+        "record_count": 1
+      },
+      "recommendation": "url_seeding_cc"
+    },
+    {
+      "url": "https://shoudian.bjx.com.cn/",
+      "domain": "shoudian.bjx.com.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": true,
+        "record_count": 1
+      },
+      "recommendation": "url_seeding_cc"
+    },
+    {
+      "url": "https://fgw.sh.gov.cn/",
+      "domain": "fgw.sh.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": false,
+        "error": "API error: 404"
+      },
+      "recommendation": "deep_crawling"
+    },
+    {
+      "url": "http://fzgg.tj.gov.cn/",
+      "domain": "fzgg.tj.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": true,
+        "record_count": 1
+      },
+      "recommendation": "url_seeding_cc"
+    },
+    {
+      "url": "https://fzggw.cq.gov.cn/",
+      "domain": "fzggw.cq.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": false,
+        "error": "API error: 404"
+      },
+      "recommendation": "deep_crawling"
+    },
+    {
+      "url": "http://hbdrc.hebei.gov.cn/",
+      "domain": "hbdrc.hebei.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": false,
+        "error": "API error: 404"
+      },
+      "recommendation": "deep_crawling"
+    },
+    {
+      "url": "https://nyj.shanxi.gov.cn/",
+      "domain": "nyj.shanxi.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": false,
+        "error": "API error: 404"
+      },
+      "recommendation": "deep_crawling"
+    },
+    {
+      "url": "http://fgw.ln.gov.cn/",
+      "domain": "fgw.ln.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": true,
+        "record_count": 1
+      },
+      "recommendation": "url_seeding_cc"
+    },
+    {
+      "url": "http://drc.hlj.gov.cn/",
+      "domain": "drc.hlj.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": false,
+        "error": "API error: 404"
+      },
+      "recommendation": "deep_crawling"
+    },
+    {
+      "url": "https://fzggw.jiangsu.gov.cn/",
+      "domain": "fzggw.jiangsu.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": true,
+        "record_count": 1
+      },
+      "recommendation": "url_seeding_cc"
+    },
+    {
+      "url": "http://nyj.jl.gov.cn/",
+      "domain": "nyj.jl.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": false,
+        "error": "API error: 404"
+      },
+      "recommendation": "deep_crawling"
+    },
+    {
+      "url": "https://fzggw.zj.gov.cn/",
+      "domain": "fzggw.zj.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": false,
+        "error": "API error: 404"
+      },
+      "recommendation": "deep_crawling"
+    },
+    {
+      "url": "https://fzggw.ah.gov.cn/jgsz/wgdw/snyj/index.html",
+      "domain": "fzggw.ah.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": false,
+        "error": "API error: 404"
+      },
+      "recommendation": "deep_crawling"
+    },
+    {
+      "url": "http://fgw.fujian.gov.cn/",
+      "domain": "fgw.fujian.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": true,
+        "record_count": 1
+      },
+      "recommendation": "url_seeding_cc"
+    },
+    {
+      "url": "http://drc.jiangxi.gov.cn/",
+      "domain": "drc.jiangxi.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": false,
+        "error": "API error: 404"
+      },
+      "recommendation": "deep_crawling"
+    },
+    {
+      "url": "http://nyj.shandong.gov.cn/",
+      "domain": "nyj.shandong.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": true,
+        "record_count": 1
+      },
+      "recommendation": "url_seeding_cc"
+    },
+    {
+      "url": "https://fgw.hubei.gov.cn/",
+      "domain": "fgw.hubei.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": false,
+        "error": "API error: 404"
+      },
+      "recommendation": "deep_crawling"
+    },
+    {
+      "url": "https://fgw.henan.gov.cn/",
+      "domain": "fgw.henan.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": false,
+        "error": "API error: 404"
+      },
+      "recommendation": "deep_crawling"
+    },
+    {
+      "url": "https://fgw.hunan.gov.cn/",
+      "domain": "fgw.hunan.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": false,
+        "error": "API error: 404"
+      },
+      "recommendation": "deep_crawling"
+    },
+    {
+      "url": "http://plan.hainan.gov.cn/",
+      "domain": "plan.hainan.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": true,
+        "record_count": 1
+      },
+      "recommendation": "url_seeding_cc"
+    },
+    {
+      "url": "https://drc.gd.gov.cn/",
+      "domain": "drc.gd.gov.cn",
+      "sitemap": {
+        "has_sitemap": true,
+        "sitemap_urls": [
+          "https://drc.gd.gov.cn/sitemap.xml"
+        ]
+      },
+      "common_crawl": {
+        "in_common_crawl": true,
+        "record_count": 2
+      },
+      "recommendation": "url_seeding_both"
+    },
+    {
+      "url": "http://fgw.sc.gov.cn/",
+      "domain": "fgw.sc.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": true,
+        "record_count": 1
+      },
+      "recommendation": "url_seeding_cc"
+    },
+    {
+      "url": "http://nyj.guizhou.gov.cn/",
+      "domain": "nyj.guizhou.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": false,
+        "error": "API error: 404"
+      },
+      "recommendation": "deep_crawling"
+    },
+    {
+      "url": "http://nyj.yn.gov.cn/",
+      "domain": "nyj.yn.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": false,
+        "error": "API error: 404"
+      },
+      "recommendation": "deep_crawling"
+    },
+    {
+      "url": "http://sndrc.shaanxi.gov.cn/",
+      "domain": "sndrc.shaanxi.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": false,
+        "error": "API error: 404"
+      },
+      "recommendation": "deep_crawling"
+    },
+    {
+      "url": "http://fzgg.gansu.gov.cn/",
+      "domain": "fzgg.gansu.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": false,
+        "error": "API error: 404"
+      },
+      "recommendation": "deep_crawling"
+    },
+    {
+      "url": "http://fgw.qinghai.gov.cn/index.html?chanldesc=3&?pc",
+      "domain": "fgw.qinghai.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": false,
+        "error": "API error: 404"
+      },
+      "recommendation": "deep_crawling"
+    },
+    {
+      "url": "http://fgw.gxzf.gov.cn/",
+      "domain": "fgw.gxzf.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": false,
+        "error": "API error: 404"
+      },
+      "recommendation": "deep_crawling"
+    },
+    {
+      "url": "http://drc.xizang.gov.cn/",
+      "domain": "drc.xizang.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": true,
+        "record_count": 2
+      },
+      "recommendation": "url_seeding_cc"
+    },
+    {
+      "url": "https://fzggw.nx.gov.cn/",
+      "domain": "fzggw.nx.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": true,
+        "record_count": 1
+      },
+      "recommendation": "url_seeding_cc"
+    },
+    {
+      "url": "http://nyj.nmg.gov.cn/",
+      "domain": "nyj.nmg.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": true,
+        "record_count": 1
+      },
+      "recommendation": "url_seeding_cc"
+    },
+    {
+      "url": "http://xjdrc.xinjiang.gov.cn/",
+      "domain": "xjdrc.xinjiang.gov.cn",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": true,
+        "record_count": 1
+      },
+      "recommendation": "url_seeding_cc"
+    },
+    {
+      "url": "https://www.dspa.gov.mo/",
+      "domain": "www.dspa.gov.mo",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": false,
+        "error": "API error: 404"
+      },
+      "recommendation": "deep_crawling"
+    },
+    {
+      "url": "https://www.emsd.gov.hk/",
+      "domain": "www.emsd.gov.hk",
+      "sitemap": {
+        "has_sitemap": false,
+        "sitemap_urls": []
+      },
+      "common_crawl": {
+        "in_common_crawl": true,
+        "record_count": 3
+      },
+      "recommendation": "url_seeding_cc"
+    }
+  ],
+  "summary": {
+    "url_seeding_supported": 19,
+    "deep_crawling_needed": 22,
+    "errors": 0
+  }
+}

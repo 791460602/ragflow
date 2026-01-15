@@ -820,6 +820,72 @@ class NewsVisitedUrlService(CommonService):
         query = cls.model.delete().where(cls.model.tenant_id == tenant_id)
         return query.execute()
 
+    @classmethod
+    @DB.connection_context()
+    def get_visited_url_hashes_by_source(cls, tenant_id: str, source_id: str = None) -> set:
+        """高效获取指定租户/源的所有已访问URL哈希值
+
+        用于批量预加载，避免每个URL都查询数据库
+
+        参数:
+            tenant_id: 租户ID
+            source_id: 源ID（可选，如果不指定则返回所有源）
+
+        返回:
+            set[str]: URL哈希值集合
+
+        性能:
+            - 单次查询加载所有哈希
+            - 返回Set，O(1)查找复杂度
+            - 内存占用：每个hash 64字节，10000个URL约640KB
+        """
+        query = cls.model.select(cls.model.url_hash).where(cls.model.tenant_id == tenant_id)
+        if source_id:
+            query = query.where(cls.model.source_id == source_id)
+
+        return {record.url_hash for record in query}
+
+    @classmethod
+    @DB.connection_context()
+    def get_all_url_hashes(cls, tenant_id: str) -> set:
+        """获取租户所有已访问URL的哈希值（用于哈希管理）"""
+        query = cls.model.select(cls.model.url_hash).where(cls.model.tenant_id == tenant_id)
+        return {record.url_hash for record in query}
+
+    @classmethod
+    @DB.connection_context()
+    def get_url_hashes_paginated(cls, tenant_id: str, source_id: str = None, page: int = 1, page_size: int = 50):
+        """分页获取URL访问记录的详细信息
+
+        返回: (records, total)
+        records: [{"url": str, "url_hash": str, "source_id": str, "title": str, ...}]
+        total: int
+        """
+        query = cls.model.select().where(cls.model.tenant_id == tenant_id)
+        if source_id:
+            query = query.where(cls.model.source_id == source_id)
+
+        total = query.count()
+        records = query.order_by(cls.model.visit_time.desc()).paginate(page, page_size)
+
+        result = []
+        for record in records:
+            result.append(
+                {
+                    "id": record.id,
+                    "url": record.url,
+                    "url_hash": record.url_hash,
+                    "source_id": record.source_id,
+                    "title": record.title or "未知标题",
+                    "is_policy": record.is_policy,
+                    "collected": record.collected,
+                    "failed": record.failed,
+                    "visit_time": record.visit_time.isoformat() if hasattr(record.visit_time, "isoformat") else str(record.visit_time),
+                }
+            )
+
+        return result, total
+
 
 # =============================================================
 # 爬虫目标管理服务
@@ -1102,4 +1168,3 @@ class CrawlTaskLogService(CommonService):
             result["params"] = {}
 
         return result
-
