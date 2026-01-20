@@ -47,6 +47,7 @@ import {
   topicSearchCrawl,
   updateNewsSource,
   updateTarget,
+  urlSeedingCrawl,
   type CrawlTarget,
 } from './NewsCollectorService';
 import TargetForm from './TargetForm';
@@ -102,7 +103,9 @@ const NewsCollector: React.FC = () => {
   const [tempApiKey, setTempApiKey] = useState('');
   const [crawlConfigModalVisible, setCrawlConfigModalVisible] = useState(false);
   const [crawlConfigForm] = Form.useForm();
-  const [crawlMode, setCrawlMode] = useState<'instant' | 'topic'>('instant');
+  const [crawlMode, setCrawlMode] = useState<
+    'instant' | 'topic' | 'url_seeding'
+  >('instant');
   const [importModalVisible, setImportModalVisible] = useState(false);
   const [importJsonText, setImportJsonText] = useState('');
   const [importLoading, setImportLoading] = useState(false);
@@ -299,7 +302,7 @@ const NewsCollector: React.FC = () => {
         message.success(
           `已启动后台抓取任务，共 ${selectedSourceIds.length} 个新闻源，内容将上传到知识库「${selectedDataset?.name || values.kb_id}」`,
         );
-      } else {
+      } else if (crawlMode === 'topic') {
         await topicSearchCrawl(
           {
             source_ids: selectedSourceIds,
@@ -316,6 +319,38 @@ const NewsCollector: React.FC = () => {
         );
         message.success(
           `已启动主题搜索抓取任务，共 ${selectedSourceIds.length} 个新闻源，内容将上传到知识库「${selectedDataset?.name || values.kb_id}」`,
+        );
+      } else if (crawlMode === 'url_seeding') {
+        // 处理关键词：将逗号分隔的字符串转换为数组
+        const keywordsInput = values.keywords || '';
+        const keywordsArray =
+          typeof keywordsInput === 'string'
+            ? keywordsInput
+                .split(',')
+                .map((k) => k.trim())
+                .filter((k) => k)
+            : keywordsInput;
+
+        if (!keywordsArray || keywordsArray.length === 0) {
+          message.error('请输入搜索关键词');
+          setLoading(false);
+          return;
+        }
+
+        await urlSeedingCrawl(
+          {
+            source_ids: selectedSourceIds,
+            keywords: keywordsArray,
+            max_pages_per_source: values.max_pages_per_source || 30,
+            max_urls_per_source: values.max_urls_per_source || 1000,
+            relevance_threshold: values.relevance_threshold || 0.3,
+            kb_id: values.kb_id,
+            parse: values.parse || false,
+          },
+          apiKey,
+        );
+        message.success(
+          `已启动URL Seeding智能搜索任务，共 ${selectedSourceIds.length} 个新闻源，内容将上传到知识库「${selectedDataset?.name || values.kb_id}」`,
         );
       }
     } catch (error: any) {
@@ -930,7 +965,7 @@ const NewsCollector: React.FC = () => {
             />
             即时抓取
           </label>
-          <label>
+          <label style={{ marginRight: 20 }}>
             <input
               type="radio"
               value="topic"
@@ -939,6 +974,16 @@ const NewsCollector: React.FC = () => {
               style={{ marginRight: 8 }}
             />
             主题搜索
+          </label>
+          <label>
+            <input
+              type="radio"
+              value="url_seeding"
+              checked={crawlMode === 'url_seeding'}
+              onChange={() => setCrawlMode('url_seeding')}
+              style={{ marginRight: 8 }}
+            />
+            URL Seeding 智能搜索
           </label>
         </div>
         <Form form={crawlConfigForm} layout="vertical">
@@ -1014,6 +1059,46 @@ const NewsCollector: React.FC = () => {
                   min={0}
                   max={1}
                   step={0.1}
+                  style={{ width: '100%' }}
+                />
+              </Form.Item>
+            </>
+          )}
+
+          {/* URL Seeding智能搜索模式参数 */}
+          {crawlMode === 'url_seeding' && (
+            <>
+              <Form.Item
+                name="keywords"
+                label="搜索关键词"
+                rules={[{ required: true, message: '请输入搜索关键词' }]}
+                tooltip="输入多个关键词，用逗号分隔。用户关键词权重最高（60%），优先匹配"
+              >
+                <Input placeholder="输入关键词，用逗号分隔，如：电力市场,现货交易" />
+              </Form.Item>
+              <Form.Item
+                name="max_urls_per_source"
+                label="每源最大URL发现数量"
+                initialValue={1000}
+                tooltip="从sitemap和Common Crawl发现的URL总数上限。推荐1000（平衡速度和覆盖度），更多2000-5000（更全面但更慢），更少500（更快但可能遗漏）"
+              >
+                <InputNumber
+                  min={100}
+                  max={5000}
+                  step={100}
+                  style={{ width: '100%' }}
+                />
+              </Form.Item>
+              <Form.Item
+                name="relevance_threshold"
+                label="相关性阈值"
+                initialValue={0.3}
+                tooltip="评分范围0-1.0：URL路径15% + 预定义词25% + 用户词60%。默认0.3表示至少匹配URL或部分关键词，0.5更严格（需要匹配用户关键词），0.2更宽松"
+              >
+                <InputNumber
+                  min={0}
+                  max={1}
+                  step={0.05}
                   style={{ width: '100%' }}
                 />
               </Form.Item>
