@@ -82,6 +82,18 @@ interface TopicSearchRequest {
   parse?: boolean;
 }
 
+// URL Seeding智能搜索请求接口
+interface UrlSeedingSearchRequest {
+  source_ids?: string[];
+  source_types?: string[];
+  keywords: string[];
+  max_pages_per_source?: number;
+  max_urls_per_source?: number; // 每源最大URL发现数量
+  relevance_threshold?: number; // 相关性阈值（自定义评分）
+  kb_id?: string;
+  parse?: boolean;
+}
+
 interface PaginatedResponse<T> {
   sources: T[];
   total: number;
@@ -333,6 +345,22 @@ export const topicSearchCrawl = async (
   }
 };
 
+// URL Seeding智能搜索抓取功能
+export const urlSeedingCrawl = async (
+  data: UrlSeedingSearchRequest,
+  apiKey?: string,
+) => {
+  try {
+    return await axios.post(`${API_BASE}/url_seeding_search`, data, {
+      headers: getAuthHeaders(apiKey),
+      timeout: 15000, // 抓取可能需要更长时间
+    });
+  } catch (error: any) {
+    console.error('启动URL Seeding搜索抓取任务失败:', error);
+    throw error;
+  }
+};
+
 // 内容与哈希管理
 export const getContentHashes = (
   params?: {
@@ -551,4 +579,5 @@ export type {
   TargetGroup,
   TaskLog,
   TopicSearchRequest,
+  UrlSeedingSearchRequest,
 };

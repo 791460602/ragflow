@@ -265,7 +265,7 @@ async def topic_search_web():
     主题搜索抓取接口（Web版）- 改进版
     根据关键词从多个新闻源进行智能爬取，优先抓取与主题相关的内容。
 
-    改进点：
+    改进点:
     1. 使用 source_ids 替代 start_url
     2. 跳过低分/重复内容时继续搜索，确保收集到足够数量的新内容
 
@@ -324,6 +324,78 @@ async def topic_search_web():
                     "max_pages_per_source": max_pages_per_source,
                     "total_max_pages": total_max_pages,
                     "score_threshold": score_threshold,
+                    "kb_id": kb_id,
+                },
+            }
+        )
+
+    except Exception as e:
+        traceback.print_exc()
+        return server_error_response(e)
+
+
+@manager.route("/url_seeding_search", methods=["POST"])  # noqa: F821
+@login_required
+async def url_seeding_search_web():
+    """
+    URL Seeding智能搜索抓取接口（Web版）
+    先发现URL，再智能过滤，后精准爬取
+
+    请求体:
+    {
+        "source_ids": ["id1", "id2"],           // 新闻源ID列表
+        "keywords": ["电力市场", "现货交易"],     // 关键词列表
+        "max_pages_per_source": 30,             // 每源最大收集篇数 (可选, 默认30)
+        "max_urls_per_source": 1000,            // 每源最大URL发现数量 (可选, 默认1000)
+        "relevance_threshold": 0.3,             // 相关性阈值 (可选, 默认0.3)
+        "kb_id": "knowledge_base_id",           // 目标知识库ID (可选)
+        "parse": false                          // 是否自动解析 (可选, 默认false)
+    }
+    """
+    try:
+        req_data = await request.get_json()
+
+        source_ids = req_data.get("source_ids")
+        keywords = req_data.get("keywords")
+        max_pages_per_source = int(req_data.get("max_pages_per_source", 30))
+        max_urls_per_source = int(req_data.get("max_urls_per_source", 1000))
+        relevance_threshold = float(req_data.get("relevance_threshold") or req_data.get("bm25_threshold", 0.3))
+        kb_id = req_data.get("kb_id")
+        parse = req_data.get("parse", False)
+
+        # 参数验证
+        if not source_ids or not isinstance(source_ids, list) or len(source_ids) == 0:
+            return get_json_result(code=400, message="新闻源ID列表 (source_ids) 不能为空，应为非空数组")
+
+        if not keywords or not isinstance(keywords, list) or len(keywords) == 0:
+            return get_json_result(code=400, message="关键词列表 (keywords) 不能为空，应为非空数组")
+
+        tenant_id = current_user.id
+
+        # 验证知识库（如果指定）
+        if kb_id and not KnowledgebaseService.accessible(kb_id, tenant_id):
+            return get_json_result(code=403, message=f"无权访问知识库 {kb_id} 或知识库不存在。")
+
+        # 导入后台任务处理函数
+        from api.apps.sdk.news_collector import _background_url_seeding_search_wrapper
+
+        # 启动后台线程
+        thread = threading.Thread(
+            target=_background_url_seeding_search_wrapper,
+            args=(tenant_id, source_ids, keywords, max_pages_per_source, max_urls_per_source, relevance_threshold, kb_id, parse),
+            daemon=True,
+        )
+        thread.start()
+
+        return get_json_result(
+            data={
+                "message": f"已成功启动URL Seeding智能搜索任务，关键词: {keywords}，新闻源数: {len(source_ids)}",
+                "params": {
+                    "source_ids": source_ids,
+                    "keywords": keywords,
+                    "max_pages_per_source": max_pages_per_source,
+                    "max_urls_per_source": max_urls_per_source,
+                    "relevance_threshold": relevance_threshold,
                     "kb_id": kb_id,
                 },
             }

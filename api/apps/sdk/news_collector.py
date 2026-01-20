@@ -284,7 +284,7 @@ async def _async_crawl_from_post_worker(tenant_id: str, source_ids: list, depth:
             if not start_url:
                 continue
 
-            selectors = source.get("fetch_config") if source.get("remark") == "1" else None
+            selectors = source.get("fetch_config") if source.get("remark") == "1" else {}
 
             try:
                 new_articles = await crawler.recursive_crawl(start_url=start_url, depth=depth, max_pages=max_pages, persistent_hashes=content_hashes, selectors=selectors)
@@ -697,7 +697,7 @@ def _background_url_seeding_search_wrapper(
 # =================================================================================
 # Flask Blueprint 和 API 端点
 # =================================================================================
-manager = Blueprint("news_collector_bp", __name__)
+manager = Blueprint("news_collector_sdk", __name__)
 
 
 # ========== 新闻源管理 CRUD ==========
@@ -1026,7 +1026,7 @@ async def topic_search_api(tenant_id):
 # ========== URL Seeding智能搜索抓取 (方案A) ==========
 
 
-@manager.route("/news_collector/url_seeding_search", methods=["POST"])
+@manager.route("/url_seeding_search", methods=["POST"])
 @token_required
 async def url_seeding_search_api(tenant_id):
     """
